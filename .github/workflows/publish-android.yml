@@ -1,0 +1,86 @@
+name: Publish Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: "App version (example: 1.0.0)"
+        required: true
+        default: "1.0.0"
+      build_number:
+        description: "Build number. Leave empty to use GitHub run number."
+        required: false
+        default: ""
+
+concurrency:
+  group: publish-android-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Signed Android AAB
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.1"
+          channel: stable
+          cache: true
+      - name: Bootstrap platforms
+        run: ./tools/bootstrap.sh
+      - name: Check required secrets
+        shell: bash
+        env:
+          SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
+        run: |
+          for secret_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD SPTRANS_TOKEN; do
+            if [ -z "${!secret_name:-}" ]; then
+              echo "::error::Missing GitHub secret: ${secret_name}"
+              exit 1
+            fi
+          done
+      - name: Install Android signing key
+        shell: bash
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=upload-keystore.jks
+          EOF
+      - name: Prepare version
+        shell: bash
+        run: |
+          build_number="${{ inputs.build_number }}"
+          if [ -z "$build_number" ]; then build_number="$GITHUB_RUN_NUMBER"; fi
+          echo "BUILD_NAME=${{ inputs.build_name }}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
+      - name: Build signed AAB
+        run: >-
+          flutter build appbundle --release
+          --build-name "$BUILD_NAME"
+          --build-number "$BUILD_NUMBER"
+          --dart-define=SPTRANS_TOKEN="${{ secrets.SPTRANS_TOKEN }}"
+      - name: Upload signed AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: meu-onibus-android-${{ inputs.build_name }}-${{ env.BUILD_NUMBER }}
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

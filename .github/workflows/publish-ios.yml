@@ -1,0 +1,168 @@
+name: Publish iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: "Version shown in App Store Connect"
+        required: true
+        default: "1.0.0"
+      build_number:
+        description: "Build number. Leave empty to use GitHub run number."
+        required: false
+        default: ""
+      upload:
+        description: "Upload signed IPA to App Store Connect / TestFlight"
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-ios-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    name: Signed IPA and TestFlight upload
+    runs-on: macos-26
+    env:
+      APP_BUNDLE_ID: br.com.lopeskuti.meuonibus
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+      IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      IOS_PROVISIONING_PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+      SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+          xcodebuild -version
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.1"
+          channel: stable
+          cache: true
+      - name: Bootstrap platforms
+        run: ./tools/bootstrap.sh
+      - name: Check required secrets
+        shell: bash
+        run: |
+          required_secrets=(APPLE_TEAM_ID IOS_DISTRIBUTION_CERTIFICATE_BASE64 IOS_PROVISIONING_PROFILE_BASE64 IOS_PROVISIONING_PROFILE_NAME APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_API_KEY_BASE64 SPTRANS_TOKEN)
+          for secret_name in "${required_secrets[@]}"; do
+            if [ -z "${!secret_name:-}" ]; then echo "::error::Missing GitHub secret: ${secret_name}"; exit 1; fi
+          done
+      - name: Prepare version
+        shell: bash
+        run: |
+          build_number="${{ inputs.build_number }}"
+          if [ -z "$build_number" ]; then build_number="$GITHUB_RUN_NUMBER"; fi
+          echo "BUILD_NAME=${{ inputs.build_name }}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
+      - name: Install signing certificate
+        shell: bash
+        run: |
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate_path="$RUNNER_TEMP/apple_distribution.p12"
+          cert_password="$(printf '%s' "${IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:-}" | tr -d '\r\n')"
+          printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | tr -d '\r\n ' | base64 -D > "$certificate_path"
+          openssl pkcs12 -in "$certificate_path" -passin pass:"$cert_password" -nokeys -clcerts -noout >/dev/null 2>&1 || { echo "::error::Invalid iOS distribution certificate or password."; exit 1; }
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$cert_password" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          echo "KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+      - name: Install provisioning profile
+        shell: bash
+        run: |
+          profile_path="$RUNNER_TEMP/app_store.mobileprovision"
+          profile_plist="$RUNNER_TEMP/app_store_profile.plist"
+          profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profiles_dir"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | tr -d '\r\n ' | base64 -D > "$profile_path"
+          security cms -D -i "$profile_path" > "$profile_plist"
+          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print UUID' "$profile_plist")"
+          profile_name="$(/usr/libexec/PlistBuddy -c 'Print Name' "$profile_plist")"
+          profile_team="$(/usr/libexec/PlistBuddy -c 'Print TeamIdentifier:0' "$profile_plist")"
+          profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print Entitlements:application-identifier' "$profile_plist")"
+          [ "$profile_team" = "$APPLE_TEAM_ID" ] || { echo "::error::Provisioning profile Team ID mismatch."; exit 1; }
+          [ "$profile_app_id" = "$APPLE_TEAM_ID.$APP_BUNDLE_ID" ] || { echo "::error::Provisioning profile Bundle ID mismatch."; exit 1; }
+          [ "$IOS_PROVISIONING_PROFILE_NAME" = "$profile_name" ] || { echo "::error::Provisioning profile name mismatch."; exit 1; }
+          cp "$profile_path" "$profiles_dir/$profile_uuid.mobileprovision"
+          echo "RESOLVED_PROVISIONING_PROFILE_NAME=$profile_name" >> "$GITHUB_ENV"
+      - name: Configure Runner signing
+        shell: bash
+        run: |
+          cat >> ios/Flutter/Release.xcconfig <<EOF
+          DEVELOPMENT_TEAM=$APPLE_TEAM_ID
+          CODE_SIGN_STYLE=Manual
+          CODE_SIGN_IDENTITY=Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER=$RESOLVED_PROVISIONING_PROFILE_NAME
+          EOF
+      - name: Generate export options
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>destination</key><string>export</string>
+          <key>method</key><string>app-store-connect</string>
+          <key>signingStyle</key><string>manual</string>
+          <key>signingCertificate</key><string>Apple Distribution</string>
+          <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+          <key>provisioningProfiles</key><dict><key>${APP_BUNDLE_ID}</key><string>${RESOLVED_PROVISIONING_PROFILE_NAME}</string></dict>
+          <key>manageAppVersionAndBuildNumber</key><false/>
+          <key>stripSwiftSymbols</key><true/>
+          <key>uploadSymbols</key><true/>
+          </dict></plist>
+          EOF
+          echo "EXPORT_OPTIONS_PLIST=$RUNNER_TEMP/ExportOptions.plist" >> "$GITHUB_ENV"
+      - name: Build Flutter iOS assets
+        run: flutter build ios --release --no-codesign --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --dart-define=SPTRANS_TOKEN="$SPTRANS_TOKEN"
+      - name: Archive signed app
+        shell: bash
+        run: |
+          xcodebuild archive -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -destination "generic/platform=iOS" -archivePath build/ios/archive/Runner.xcarchive CURRENT_PROJECT_VERSION="$BUILD_NUMBER" MARKETING_VERSION="$BUILD_NAME"
+      - name: Export IPA
+        shell: bash
+        run: |
+          xcodebuild -exportArchive -archivePath build/ios/archive/Runner.xcarchive -exportOptionsPlist "$EXPORT_OPTIONS_PLIST" -exportPath build/ios/ipa
+          ipa_path="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -print -quit)"
+          [ -n "$ipa_path" ] || { echo "::error::IPA was not generated."; exit 1; }
+          echo "IPA_PATH=$ipa_path" >> "$GITHUB_ENV"
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meu-onibus-ios-${{ inputs.build_name }}-${{ env.BUILD_NUMBER }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+      - name: Upload to App Store Connect / TestFlight
+        if: ${{ inputs.upload }}
+        shell: bash
+        run: |
+          api_key_id="$(printf '%s' "$APP_STORE_CONNECT_KEY_ID" | tr -d '\r\n[:space:]')"
+          api_issuer_id="$(printf '%s' "$APP_STORE_CONNECT_ISSUER_ID" | tr -d '\r\n[:space:]')"
+          private_keys_dir="$HOME/.appstoreconnect/private_keys"
+          api_key_path="$private_keys_dir/AuthKey_${api_key_id}.p8"
+          mkdir -p "$private_keys_dir"
+          printf '%s' "$APP_STORE_CONNECT_API_KEY_BASE64" | tr -d '\r\n ' | base64 -D > "$api_key_path"
+          chmod 600 "$api_key_path"
+          openssl pkey -in "$api_key_path" -noout >/dev/null 2>&1 || { echo "::error::Invalid App Store Connect .p8 API key."; exit 1; }
+          xcrun altool --upload-app --type ios -f "$IPA_PATH" --apiKey "$api_key_id" --apiIssuer "$api_issuer_id"
+      - name: Clean up signing keychain
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then security delete-keychain "$KEYCHAIN_PATH" || true; fi
