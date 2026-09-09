@@ -41,13 +41,21 @@ jobs:
           channel: stable
           cache: true
       - run: ./tools/bootstrap.sh
-      - name: Validate SPTrans token
+      - name: Validate SPTrans token against Olho Vivo
         shell: bash
         env:
           SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
         run: |
           if [ -z "${SPTRANS_TOKEN:-}" ]; then
             echo "::error::Missing GitHub Actions secret SPTRANS_TOKEN. Configure it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          response="$(curl --fail-with-body --silent --show-error --max-time 30 -X POST --get \
+            --data-urlencode "token=${SPTRANS_TOKEN}" \
+            "https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar")"
+          echo "Olho Vivo authentication response: ${response}"
+          if [ "${response}" != "true" ]; then
+            echo "::error::SPTrans Olho Vivo rejected SPTRANS_TOKEN (expected response: true)."
             exit 1
           fi
       - name: Prepare current SPTrans GTFS
@@ -84,13 +92,21 @@ jobs:
           channel: stable
           cache: true
       - run: ./tools/bootstrap.sh
-      - name: Validate SPTrans token
+      - name: Validate SPTrans token against Olho Vivo
         shell: bash
         env:
           SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
         run: |
           if [ -z "${SPTRANS_TOKEN:-}" ]; then
             echo "::error::Missing GitHub Actions secret SPTRANS_TOKEN. Configure it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          response="$(curl --fail-with-body --silent --show-error --max-time 30 -X POST --get \
+            --data-urlencode "token=${SPTRANS_TOKEN}" \
+            "https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar")"
+          echo "Olho Vivo authentication response: ${response}"
+          if [ "${response}" != "true" ]; then
+            echo "::error::SPTrans Olho Vivo rejected SPTRANS_TOKEN (expected response: true)."
             exit 1
           fi
       - name: Prepare current SPTrans GTFS
