@@ -47,7 +47,12 @@ class OlhoVivoService {
     if (token.isEmpty) throw OlhoVivoException('Configure SPTRANS_TOKEN com --dart-define.');
 
     final uri = Uri.parse('$_baseUrl/Login/Autenticar').replace(queryParameters: {'token': token});
-    final response = await _client.post(uri);
+    final request = http.Request('POST', uri)
+      ..headers['Content-Length'] = '0'
+      ..body = '';
+    final streamed = await _client.send(request);
+    final response = await http.Response.fromStream(streamed);
+
     if (response.statusCode != 200 || response.body.trim().toLowerCase() != 'true') {
       throw OlhoVivoException('Falha ao autenticar na API Olho Vivo (${response.statusCode}).');
     }
