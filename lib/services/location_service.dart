@@ -12,6 +12,11 @@ class LocationService {
     if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
       throw Exception('Permissão de localização não concedida.');
     }
-    return Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+      ),
+    );
   }
 }
