@@ -80,7 +80,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: choices.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1, indent: 76),
+                  separatorBuilder: (_, _) => const Divider(height: 1, indent: 76),
                   itemBuilder: (_, i) {
                     final route = choices[i];
                     return ListTile(
