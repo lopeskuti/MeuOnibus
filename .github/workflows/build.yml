@@ -41,6 +41,15 @@ jobs:
           channel: stable
           cache: true
       - run: ./tools/bootstrap.sh
+      - name: Validate SPTrans token
+        shell: bash
+        env:
+          SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
+        run: |
+          if [ -z "${SPTRANS_TOKEN:-}" ]; then
+            echo "::error::Missing GitHub Actions secret SPTRANS_TOKEN. Configure it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
       - name: Prepare current SPTrans GTFS
         run: bash tools/fetch_gtfs.sh
       - name: Build Android AAB
@@ -75,6 +84,15 @@ jobs:
           channel: stable
           cache: true
       - run: ./tools/bootstrap.sh
+      - name: Validate SPTrans token
+        shell: bash
+        env:
+          SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
+        run: |
+          if [ -z "${SPTRANS_TOKEN:-}" ]; then
+            echo "::error::Missing GitHub Actions secret SPTRANS_TOKEN. Configure it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
       - name: Prepare current SPTrans GTFS
         run: bash tools/fetch_gtfs.sh
       - run: flutter build ios --release --no-codesign --dart-define=SPTRANS_TOKEN="${{ secrets.SPTRANS_TOKEN }}"
