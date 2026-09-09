@@ -4,6 +4,11 @@ cd "$(dirname "$0")/.."
 
 flutter create . --platforms=android,ios --org br.com.lopeskuti --project-name meu_onibus
 
+# O flutter create gera o teste de exemplo apontando para MyApp, mas o app usa
+# uma classe raiz diferente. Removemos o teste do template para que o analyze
+# valide somente os testes reais versionados no projeto.
+rm -f test/widget_test.dart
+
 python3 - <<'PY'
 from pathlib import Path
 p = Path('android/app/src/main/AndroidManifest.xml')
