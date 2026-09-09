@@ -50,9 +50,10 @@ jobs:
             echo "::error::Missing GitHub Actions secret SPTRANS_TOKEN. Configure it under Settings > Secrets and variables > Actions."
             exit 1
           fi
-          response="$(curl --fail-with-body --silent --show-error --max-time 30 -X POST --get \
-            --data-urlencode "token=${SPTRANS_TOKEN}" \
-            "https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar")"
+          response="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Content-Length: 0" \
+            "https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar?token=${SPTRANS_TOKEN}")"
           echo "Olho Vivo authentication response: ${response}"
           if [ "${response}" != "true" ]; then
             echo "::error::SPTrans Olho Vivo rejected SPTRANS_TOKEN (expected response: true)."
@@ -101,9 +102,10 @@ jobs:
             echo "::error::Missing GitHub Actions secret SPTRANS_TOKEN. Configure it under Settings > Secrets and variables > Actions."
             exit 1
           fi
-          response="$(curl --fail-with-body --silent --show-error --max-time 30 -X POST --get \
-            --data-urlencode "token=${SPTRANS_TOKEN}" \
-            "https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar")"
+          response="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Content-Length: 0" \
+            "https://api.olhovivo.sptrans.com.br/v2.1/Login/Autenticar?token=${SPTRANS_TOKEN}")"
           echo "Olho Vivo authentication response: ${response}"
           if [ "${response}" != "true" ]; then
             echo "::error::SPTrans Olho Vivo rejected SPTRANS_TOKEN (expected response: true)."
