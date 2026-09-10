@@ -1,7 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
-  Future<Position> current() async {
+  Future<void> ensurePermission() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw Exception('Ative a localização do aparelho para ver os pontos próximos.');
     }
@@ -12,10 +12,21 @@ class LocationService {
     if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
       throw Exception('Permissão de localização não concedida.');
     }
+  }
 
+  Future<Position> current() async {
+    await ensurePermission();
     return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+    );
+  }
+
+  Future<Stream<Position>> foregroundPositions() async {
+    await ensurePermission();
+    return Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
       ),
     );
   }
