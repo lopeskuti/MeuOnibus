@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/transit_models.dart';
 import '../services/gtfs_repository.dart';
@@ -19,6 +22,7 @@ class HomeMapScreen extends StatefulWidget {
 class _HomeMapScreenState extends State<HomeMapScreen> {
   final _map = MapController();
   final _location = LocationService();
+  StreamSubscription<Position>? _locationSubscription;
   LatLng? _me;
   List<BusStop> _nearby = const [];
   String? _error;
@@ -35,14 +39,27 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     try {
       await widget.gtfs.load();
       final p = await _location.current();
-      final me = LatLng(p.latitude, p.longitude);
-      final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
-      if (!mounted) return;
-      setState(() { _me = me; _nearby = stops; _loading = false; });
-      WidgetsBinding.instance.addPostFrameCallback((_) => _map.move(me, 16));
+      _applyLocation(p, moveMap: true);
+      await _locationSubscription?.cancel();
+      final stream = await _location.foregroundPositions();
+      _locationSubscription = stream.listen(
+        (position) => _applyLocation(position, moveMap: true),
+        onError: (Object e) {
+          if (mounted) setState(() => _error = e.toString());
+        },
+      );
+      if (mounted) setState(() => _loading = false);
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
+  }
+
+  void _applyLocation(Position p, {required bool moveMap}) {
+    final me = LatLng(p.latitude, p.longitude);
+    final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
+    if (!mounted) return;
+    setState(() { _me = me; _nearby = stops; });
+    if (moveMap) WidgetsBinding.instance.addPostFrameCallback((_) => _map.move(me, 16));
   }
 
   String _distanceLabel(BusStop stop) {
@@ -97,7 +114,13 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                       trailing: const Icon(Icons.chevron_right_rounded),
                       onTap: () {
                         Navigator.pop(context);
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => RouteMapScreen(route: route, gtfs: widget.gtfs, api: widget.api)));
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => RouteMapScreen(
+                          route: route,
+                          stop: stop,
+                          initialLocation: _me,
+                          gtfs: widget.gtfs,
+                          api: widget.api,
+                        )));
                       },
                     );
                   },
@@ -124,9 +147,15 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   );
 
   Widget _locationMarker() => Stack(alignment: Alignment.center, children: [
-    Container(width: 40, height: 40, decoration: const BoxDecoration(color: Color(0x33087CCB), shape: BoxShape.circle)),
-    Container(width: 18, height: 18, decoration: BoxDecoration(color: const Color(0xFF087CCB), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3), boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)])),
+    Container(width: 46, height: 46, decoration: const BoxDecoration(color: Color(0x33087CCB), shape: BoxShape.circle)),
+    Container(width: 20, height: 20, decoration: BoxDecoration(color: const Color(0xFF087CCB), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3), boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)])),
   ]);
+
+  @override
+  void dispose() {
+    _locationSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +176,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Meu Ônibus', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-            Text('Seu próximo ônibus, mais perto de você', style: Theme.of(context).textTheme.bodySmall),
+            Text('Sua localização acompanha o mapa em tempo real', style: Theme.of(context).textTheme.bodySmall),
           ])),
         ]),
         actions: [
@@ -158,11 +187,11 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
       body: Stack(children: [
         FlutterMap(
           mapController: _map,
-          options: MapOptions(initialCenter: initial, initialZoom: 13, minZoom: 10, maxZoom: 19),
+          options: MapOptions(initialCenter: initial, initialZoom: 16, minZoom: 10, maxZoom: 19),
           children: [
             TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'br.com.lopeskuti.meuonibus'),
             MarkerLayer(markers: [
-              if (_me != null) Marker(point: _me!, width: 40, height: 40, child: _locationMarker()),
+              if (_me != null) Marker(point: _me!, width: 46, height: 46, child: _locationMarker()),
               ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 42, height: 42, child: _stopMarker(stop))),
             ]),
             RichAttributionWidget(attributions: const [TextSourceAttribution('OpenStreetMap contributors')]),
