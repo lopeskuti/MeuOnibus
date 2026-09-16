@@ -33,6 +33,15 @@ class OlhoVivoLine {
       );
 }
 
+class ArrivalPrediction {
+  final String prefix;
+  final int minutes;
+  final String expectedAt;
+  final bool accessible;
+
+  const ArrivalPrediction({required this.prefix, required this.minutes, required this.expectedAt, required this.accessible});
+}
+
 class OlhoVivoService {
   static const _baseUrl = 'https://api.olhovivo.sptrans.com.br/v2.1';
   final String token;
@@ -47,9 +56,14 @@ class OlhoVivoService {
     if (token.isEmpty) throw OlhoVivoException('Configure SPTRANS_TOKEN com --dart-define.');
 
     final uri = Uri.parse('$_baseUrl/Login/Autenticar').replace(queryParameters: {'token': token});
-    final response = await _client.post(uri);
+    final request = http.Request('POST', uri)
+      ..headers['Content-Length'] = '0'
+      ..body = '';
+    final streamed = await _client.send(request);
+    final response = await http.Response.fromStream(streamed);
+
     if (response.statusCode != 200 || response.body.trim().toLowerCase() != 'true') {
-      throw OlhoVivoException('Falha ao autenticar na API Olho Vivo (${response.statusCode}).');
+      throw OlhoVivoException('Falha ao autenticar na API Olho Vivo (${response.statusCode}: ${response.body.trim()}).');
     }
 
     final setCookie = response.headers['set-cookie'];
@@ -107,5 +121,67 @@ class OlhoVivoService {
     if (response.statusCode != 200) throw OlhoVivoException('Erro ao carregar veículos (${response.statusCode}).');
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return ((data['vs'] ?? const []) as List).map((e) => VehiclePosition.fromJson(Map<String, dynamic>.from(e))).toList(growable: false);
+  }
+
+  Future<List<ArrivalPrediction>> arrivals(int lineCode, String stopCode) async {
+    if (int.tryParse(stopCode) == null) return const [];
+    final uri = Uri.parse('$_baseUrl/Previsao').replace(queryParameters: {
+      'codigoParada': stopCode,
+      'codigoLinha': '$lineCode',
+    });
+    final response = await _get(uri);
+    if (response.statusCode != 200) throw OlhoVivoException('Erro ao carregar previsão (${response.statusCode}).');
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final serverTime = (data['hr'] ?? '').toString();
+    final point = data['p'];
+    if (point is! Map) return const [];
+    final lines = point['l'];
+    if (lines is! List) return const [];
+
+    final result = <ArrivalPrediction>[];
+    for (final rawLine in lines) {
+      if (rawLine is! Map) continue;
+      final line = Map<String, dynamic>.from(rawLine);
+      final code = (line['cl'] as num?)?.toInt();
+      if (code != null && code != lineCode) continue;
+      final vehicles = line['vs'];
+      if (vehicles is! List) continue;
+      for (final rawVehicle in vehicles) {
+        if (rawVehicle is! Map) continue;
+        final vehicle = Map<String, dynamic>.from(rawVehicle);
+        final expectedAt = (vehicle['t'] ?? '').toString();
+        final minutes = _minutesUntil(serverTime, expectedAt);
+        if (minutes == null) continue;
+        result.add(ArrivalPrediction(
+          prefix: (vehicle['p'] ?? '').toString(),
+          minutes: minutes,
+          expectedAt: expectedAt,
+          accessible: vehicle['a'] == true,
+        ));
+      }
+    }
+    result.sort((a, b) => a.minutes.compareTo(b.minutes));
+    return result;
+  }
+
+  int? _minutesUntil(String current, String arrival) {
+    int? parseMinutes(String value) {
+      final parts = value.split(':');
+      if (parts.length < 2) return null;
+      final hour = int.tryParse(parts[0]);
+      final minute = int.tryParse(parts[1]);
+      if (hour == null || minute == null) return null;
+      return hour * 60 + minute;
+    }
+
+    final now = parseMinutes(current);
+    final eta = parseMinutes(arrival);
+    if (eta == null) return null;
+    final currentTime = DateTime.now();
+    final base = now ?? (currentTime.hour * 60 + currentTime.minute);
+    var diff = eta - base;
+    if (diff < 0) diff += 24 * 60;
+    return diff;
   }
 }

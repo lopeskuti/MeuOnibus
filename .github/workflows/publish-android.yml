@@ -44,6 +44,8 @@ jobs:
           cache: true
       - name: Bootstrap platforms
         run: ./tools/bootstrap.sh
+      - name: Prepare current SPTrans GTFS
+        run: bash tools/fetch_gtfs.sh
       - name: Check required secrets
         shell: bash
         env:

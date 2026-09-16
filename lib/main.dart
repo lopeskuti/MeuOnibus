@@ -14,11 +14,39 @@ class MeuOnibusApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const seed = Color(0xFF087CCB);
+    final light = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light);
+    final dark = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Meu Ônibus',
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
-      darkTheme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true, brightness: Brightness.dark),
+      theme: ThemeData(
+        colorScheme: light,
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          surfaceTintColor: Colors.transparent,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 2,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        ),
+      ),
+      darkTheme: ThemeData(
+        colorScheme: dark,
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0, surfaceTintColor: Colors.transparent),
+        cardTheme: CardThemeData(
+          elevation: 2,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        ),
+      ),
       home: HomeMapScreen(gtfs: GtfsRepository(), api: OlhoVivoService(token: token)),
     );
   }
