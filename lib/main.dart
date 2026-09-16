@@ -14,9 +14,14 @@ class MeuOnibusApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xFF087CCB);
-    final light = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light);
-    final dark = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+    const brand = Color(0xFF0B82D4);
+    const darkSurface = Color(0xFF101419);
+    final light = ColorScheme.fromSeed(seedColor: brand, brightness: Brightness.light);
+    final dark = ColorScheme.fromSeed(seedColor: brand, brightness: Brightness.dark).copyWith(
+      surface: darkSurface,
+      surfaceContainer: const Color(0xFF1A2027),
+      surfaceContainerHighest: const Color(0xFF252C35),
+    );
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -24,27 +29,38 @@ class MeuOnibusApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: light,
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+        scaffoldBackgroundColor: const Color(0xFFF4F7FB),
         appBarTheme: const AppBarTheme(
           centerTitle: false,
           elevation: 0,
-          scrolledUnderElevation: 1,
+          scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
+          backgroundColor: Color(0xFFF4F7FB),
         ),
         cardTheme: CardThemeData(
-          elevation: 2,
+          elevation: 5,
+          shadowColor: const Color(0x1A17212B),
           margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         ),
       ),
       darkTheme: ThemeData(
         colorScheme: dark,
         useMaterial3: true,
-        appBarTheme: const AppBarTheme(centerTitle: false, elevation: 0, surfaceTintColor: Colors.transparent),
+        scaffoldBackgroundColor: darkSurface,
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          backgroundColor: darkSurface,
+        ),
         cardTheme: CardThemeData(
-          elevation: 2,
+          color: const Color(0xFF1A2027),
+          elevation: 8,
+          shadowColor: Colors.black45,
           margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         ),
       ),
       home: HomeMapScreen(gtfs: GtfsRepository(), api: OlhoVivoService(token: token)),

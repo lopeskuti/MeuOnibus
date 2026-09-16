@@ -27,6 +27,9 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   List<BusStop> _nearby = const [];
   String? _error;
   bool _loading = true;
+  bool _hasCenteredOnLocation = false;
+
+  static const _followZoom = 17.4;
 
   @override
   void initState() {
@@ -59,7 +62,16 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
     if (!mounted) return;
     setState(() { _me = me; _nearby = stops; });
-    if (moveMap) WidgetsBinding.instance.addPostFrameCallback((_) => _map.move(me, 16));
+    if (moveMap) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        // Aproxima na primeira localização e, nas atualizações seguintes,
+        // preserva o zoom que a pessoa escolheu no mapa.
+        final zoom = _hasCenteredOnLocation ? _map.camera.zoom : _followZoom;
+        _map.move(me, zoom);
+        _hasCenteredOnLocation = true;
+      });
+    }
   }
 
   String _distanceLabel(BusStop stop) {
@@ -137,18 +149,18 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     onTap: () => _openStop(stop),
     child: Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF087CCB),
+        color: const Color(0xFF0B82D4),
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 3),
-        boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
+        border: Border.all(color: Colors.white, width: 2.5),
+        boxShadow: const [BoxShadow(blurRadius: 5, offset: Offset(0, 2), color: Colors.black26)],
       ),
-      child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white, size: 22),
+      child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white, size: 18),
     ),
   );
 
   Widget _locationMarker() => Stack(alignment: Alignment.center, children: [
-    Container(width: 46, height: 46, decoration: const BoxDecoration(color: Color(0x33087CCB), shape: BoxShape.circle)),
-    Container(width: 20, height: 20, decoration: BoxDecoration(color: const Color(0xFF087CCB), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3), boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)])),
+    Container(width: 44, height: 44, decoration: const BoxDecoration(color: Color(0x380B82D4), shape: BoxShape.circle)),
+    Container(width: 19, height: 19, decoration: BoxDecoration(color: const Color(0xFF0B82D4), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3), boxShadow: const [BoxShadow(blurRadius: 5, color: Colors.black38)])),
   ]);
 
   @override
@@ -164,48 +176,56 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 72,
-        titleSpacing: 16,
+        toolbarHeight: 84,
+        titleSpacing: 20,
         title: Row(children: [
           Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(color: const Color(0xFF087CCB), borderRadius: BorderRadius.circular(12)),
-            child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white),
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0B82D4),
+              borderRadius: BorderRadius.circular(15),
+              boxShadow: const [BoxShadow(color: Color(0x330B82D4), blurRadius: 10, offset: Offset(0, 4))],
+            ),
+            child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white, size: 28),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Meu Ônibus', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
             Text('Sua localização acompanha o mapa em tempo real', style: Theme.of(context).textTheme.bodySmall),
           ])),
         ]),
         actions: [
-          IconButton(onPressed: _bootstrap, tooltip: 'Atualizar localização', icon: const Icon(Icons.my_location_rounded)),
-          const SizedBox(width: 6),
+          IconButton.filledTonal(
+            onPressed: _bootstrap,
+            tooltip: 'Centralizar na minha localização',
+            icon: const Icon(Icons.my_location_rounded),
+          ),
+          const SizedBox(width: 12),
         ],
       ),
       body: Stack(children: [
         FlutterMap(
           mapController: _map,
-          options: MapOptions(initialCenter: initial, initialZoom: 16, minZoom: 10, maxZoom: 19),
+          options: MapOptions(initialCenter: initial, initialZoom: _followZoom, minZoom: 10, maxZoom: 19),
           children: [
             TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'br.com.lopeskuti.meuonibus'),
             MarkerLayer(markers: [
               if (_me != null) Marker(point: _me!, width: 46, height: 46, child: _locationMarker()),
-              ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 42, height: 42, child: _stopMarker(stop))),
+              ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 34, height: 34, child: _stopMarker(stop))),
             ]),
             RichAttributionWidget(attributions: const [TextSourceAttribution('OpenStreetMap contributors')]),
           ],
         ),
         if (!_loading && visibleStops.isNotEmpty)
           Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
+            left: 14,
+            right: 14,
+            bottom: 14,
             child: Card(
               clipBehavior: Clip.antiAlias,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                   Row(children: [
                     Text('Pontos próximos', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
@@ -216,7 +236,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                   ...visibleStops.map((stop) => ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(radius: 18, child: Icon(Icons.directions_bus_filled_rounded, size: 18)),
+                    leading: const CircleAvatar(radius: 20, child: Icon(Icons.directions_bus_filled_rounded, size: 19)),
                     title: Text(stop.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(_distanceLabel(stop)),
                     trailing: const Icon(Icons.chevron_right_rounded),
