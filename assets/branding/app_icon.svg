@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#0B82D4"/>
+  <text x="512" y="286" fill="#FFFFFF" font-family="DejaVu Sans, Arial, sans-serif" font-size="178" font-weight="800" letter-spacing="-8" text-anchor="middle">meu</text>
+  <rect x="218" y="372" width="588" height="396" rx="88" fill="#FFFFFF"/>
+  <rect x="288" y="444" width="448" height="166" rx="44" fill="#0B82D4"/>
+  <rect x="324" y="476" width="376" height="102" rx="24" fill="#D8EFFC"/>
+  <rect x="324" y="476" width="182" height="102" rx="24" fill="#C5E8FA"/>
+  <path d="M512 476v102" stroke="#0B82D4" stroke-width="20" stroke-linecap="round"/>
+  <circle cx="322" cy="663" r="29" fill="#0B82D4"/>
+  <circle cx="702" cy="663" r="29" fill="#0B82D4"/>
+  <rect x="394" y="646" width="236" height="26" rx="13" fill="#0B82D4"/>
+  <circle cx="336" cy="768" r="54" fill="#102A3B"/>
+  <circle cx="688" cy="768" r="54" fill="#102A3B"/>
+  <circle cx="336" cy="768" r="20" fill="#FFFFFF"/>
+  <circle cx="688" cy="768" r="20" fill="#FFFFFF"/>
+</svg>

@@ -17,7 +17,7 @@ marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
 insert = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />'''
 if 'ACCESS_FINE_LOCATION' not in s:
     s = s.replace(marker, insert)
-s = s.replace('android:label="meu_onibus"', 'android:label="Meu Ônibus"')
+s = s.replace('android:label="meu_onibus"', 'android:label="Meu Ônibus SP"')
 p.write_text(s)
 
 p = Path('android/app/build.gradle.kts')
@@ -41,10 +41,27 @@ if 'NSLocationWhenInUseUsageDescription' not in s:
     s = s.replace('</dict>', '\t<key>NSLocationWhenInUseUsageDescription</key>\n\t<string>Sua localização é usada para mostrar os pontos de ônibus próximos.</string>\n</dict>')
 p.write_text(s)
 
+p = Path('ios/Runner/Info.plist')
+s = p.read_text()
+for key in ('CFBundleDisplayName', 'CFBundleName'):
+    entry = f'\t<key>{key}</key>\n\t<string>Meu Ônibus SP</string>'
+    if f'<key>{key}</key>' in s:
+        import re
+        s = re.sub(
+            rf'\t<key>{key}</key>\s*\n\s*<string>.*?</string>',
+            entry,
+            s,
+            count=1,
+        )
+    else:
+        s = s.replace('</dict>', f'{entry}\n</dict>')
+p.write_text(s)
+
 p = Path('ios/Runner.xcodeproj/project.pbxproj')
 s = p.read_text().replace('br.com.lopeskuti.meuOnibus', 'br.com.lopeskuti.meuonibus')
 p.write_text(s)
 PY
 
 flutter pub get
+dart run flutter_launcher_icons
 printf '\nBootstrap concluído.\n'

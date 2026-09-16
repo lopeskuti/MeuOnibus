@@ -11,7 +11,7 @@ import '../services/olho_vivo_service.dart';
 
 class RouteMapScreen extends StatefulWidget {
   final BusRoute route;
-  final BusStop stop;
+  final BusStop? stop;
   final LatLng? initialLocation;
   final GtfsRepository gtfs;
   final OlhoVivoService api;
@@ -19,7 +19,7 @@ class RouteMapScreen extends StatefulWidget {
   const RouteMapScreen({
     super.key,
     required this.route,
-    required this.stop,
+    this.stop,
     required this.gtfs,
     required this.api,
     this.initialLocation,
@@ -91,7 +91,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       final vehicles = await widget.api.vehicles(code);
       List<ArrivalPrediction> arrivals = const [];
       try {
-        arrivals = await widget.api.arrivals(code, widget.stop.id);
+        final stop = widget.stop;
+        if (stop != null) arrivals = await widget.api.arrivals(code, stop.id);
       } catch (_) {
         // Mantém o mapa funcionando mesmo quando a previsão estiver indisponível.
       }
@@ -151,7 +152,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   @override
   Widget build(BuildContext context) {
     final shape = widget.gtfs.shapeFor(widget.route);
-    final initial = _me ?? LatLng(widget.stop.lat, widget.stop.lon);
+    final stop = widget.stop;
+    final initial = _me ?? (stop == null ? (shape.isNotEmpty ? shape.first : const LatLng(-23.55052, -46.633308)) : LatLng(stop.lat, stop.lon));
     final nextArrival = _arrivals.isEmpty ? null : _arrivals.first;
 
     return Scaffold(
@@ -181,7 +183,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                 Polyline(points: shape, strokeWidth: 4.5, color: const Color(0xFFE5252A)),
               ]),
             MarkerLayer(markers: [
-              Marker(point: LatLng(widget.stop.lat, widget.stop.lon), width: 46, height: 46, child: Tooltip(message: widget.stop.name, child: _selectedStopMarker())),
+              if (stop != null)
+                Marker(point: LatLng(stop.lat, stop.lon), width: 46, height: 46, child: Tooltip(message: stop.name, child: _selectedStopMarker())),
               if (_me != null) Marker(point: _me!, width: 54, height: 54, child: Tooltip(message: 'Você está aqui', child: _locationMarker())),
               ..._vehicles.map((v) => Marker(
                 point: LatLng(v.lat, v.lon),
@@ -226,8 +229,10 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(widget.stop.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    if (nextArrival != null)
+                    Text(stop?.name ?? 'Acompanhamento da linha', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+                    if (stop == null)
+                      Text('Trajeto e veículos em tempo real', style: Theme.of(context).textTheme.bodySmall)
+                    else if (nextArrival != null)
                       Text(
                         nextArrival.minutes <= 1
                             ? 'Próximo ônibus chegando • ${nextArrival.expectedAt}'
