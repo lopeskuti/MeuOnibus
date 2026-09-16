@@ -128,12 +128,14 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           arrivalError = 'Não foi possível carregar a previsão: $e';
         }
       }
-      if (mounted) setState(() {
-        _vehicles = vehicles;
-        _arrivals = arrivals;
-        _arrivalError = arrivalError;
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _vehicles = vehicles;
+          _arrivals = arrivals;
+          _arrivalError = arrivalError;
+          _error = null;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
