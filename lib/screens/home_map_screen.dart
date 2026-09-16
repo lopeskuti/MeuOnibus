@@ -81,6 +81,88 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     return meters < 1000 ? '$meters m' : '${(meters / 1000).toStringAsFixed(1)} km';
   }
 
+  Future<void> _openRoute(BusRoute route) async {
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => RouteMapScreen(
+      route: route,
+      initialLocation: _me,
+      gtfs: widget.gtfs,
+      api: widget.api,
+    )));
+  }
+
+  Future<void> _openRouteSearch() async {
+    final controller = TextEditingController();
+    var results = const <BusRoute>[];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * .74,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('Buscar linha', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('Pesquise pelo número ou pelo nome do destino.', style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    hintText: 'Ex.: 748R ou Barra Funda',
+                    prefixIcon: Icon(Icons.search_rounded),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (query) => setSheetState(() => results = widget.gtfs.searchRoutes(query)),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: controller.text.trim().isEmpty
+                      ? const Center(child: Text('Digite uma linha ou destino para pesquisar.'))
+                      : results.isEmpty
+                          ? const Center(child: Text('Nenhuma linha encontrada.'))
+                          : ListView.separated(
+                              itemCount: results.length,
+                              separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
+                              itemBuilder: (_, index) {
+                                final route = results[index];
+                                return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 5),
+                                  leading: Container(
+                                    width: 52,
+                                    height: 42,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0B82D4),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(route.shortName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+                                  ),
+                                  title: Text(route.longName.isEmpty ? route.shortName : route.longName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                  subtitle: const Text('Ver trajeto e ônibus em tempo real'),
+                                  trailing: const Icon(Icons.chevron_right_rounded),
+                                  onTap: () {
+                                    Navigator.pop(sheetContext);
+                                    _openRoute(route);
+                                  },
+                                );
+                              },
+                            ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+  }
+
   Future<void> _openStop(BusStop stop) async {
     final choices = widget.gtfs.routesForStop(stop.id);
     if (!mounted) return;
@@ -195,6 +277,12 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
           ])),
         ]),
         actions: [
+          IconButton.filledTonal(
+            onPressed: _loading ? null : _openRouteSearch,
+            tooltip: 'Buscar linha',
+            icon: const Icon(Icons.search_rounded),
+          ),
+          const SizedBox(width: 8),
           IconButton.filledTonal(
             onPressed: _bootstrap,
             tooltip: 'Atualizar localização',
