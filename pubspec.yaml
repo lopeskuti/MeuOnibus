@@ -23,6 +23,7 @@ flutter:
     - assets/gtfs/routes.json
     - assets/gtfs/shapes.json
     - assets/gtfs/terminals.json
+    - assets/gtfs/schedules.json
 
 dev_dependencies:
   flutter_test:
