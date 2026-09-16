@@ -154,6 +154,14 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     ),
   ]);
 
+  Widget _scheduleItem(String label, String value) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+      Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+    ],
+  );
+
   Widget _selectedStopMarker() => Container(
     decoration: BoxDecoration(
       color: const Color(0xFF0B8F55),
@@ -170,6 +178,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final stop = widget.stop;
     final initial = _me ?? (stop == null ? (shape.isNotEmpty ? shape.first : const LatLng(-23.55052, -46.633308)) : LatLng(stop.lat, stop.lon));
     final nextArrival = _arrivals.isEmpty ? null : _arrivals.first;
+    final schedule = widget.gtfs.scheduleFor(widget.route);
 
     return Scaffold(
       appBar: AppBar(
