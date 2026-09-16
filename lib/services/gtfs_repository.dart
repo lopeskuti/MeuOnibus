@@ -39,5 +39,32 @@ class GtfsRepository {
       .whereType<BusRoute>()
       .toList(growable: false);
 
+  List<BusRoute> searchRoutes(String query, {int limit = 40}) {
+    final terms = _normalise(query).split(' ').where((term) => term.isNotEmpty).toList();
+    if (terms.isEmpty) return const [];
+
+    final matches = _routes.values.where((route) {
+      final searchable = _normalise('\undefined \undefined');
+      return terms.every(searchable.contains);
+    }).toList();
+    matches.sort((a, b) {
+      final aExact = _normalise(a.shortName) == terms.join(' ');
+      final bExact = _normalise(b.shortName) == terms.join(' ');
+      if (aExact != bExact) return aExact ? -1 : 1;
+      return a.shortName.compareTo(b.shortName);
+    });
+    return matches.take(limit).toList(growable: false);
+  }
+
+  String _normalise(String value) {
+    const accented = 'áàâãäéèêëíìîïóòôõöúùûüç';
+    const plain = 'aaaaaeeeeiiiiooooouuuuc';
+    var result = value.toLowerCase();
+    for (var i = 0; i < accented.length; i++) {
+      result = result.replaceAll(accented[i], plain[i]);
+    }
+    return result.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+  }
+
   List<LatLng> shapeFor(BusRoute route) => route.shapeId == null ? const [] : (_shapes[route.shapeId!] ?? const []);
 }
