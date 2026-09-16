@@ -10,6 +10,7 @@ class GtfsRepository {
   Map<String, List<LatLng>> _shapes = const {};
   List<BusTerminal> _terminals = const [];
   Set<String> _terminalStopIds = const {};
+  Map<String, RouteSchedule> _schedules = const {};
 
   bool get hasData => _stops.isNotEmpty;
 
@@ -19,12 +20,14 @@ class GtfsRepository {
     final routesRaw = jsonDecode(await rootBundle.loadString('assets/gtfs/routes.json')) as Map<String, dynamic>;
     final shapesRaw = jsonDecode(await rootBundle.loadString('assets/gtfs/shapes.json')) as Map<String, dynamic>;
     final terminalsRaw = jsonDecode(await rootBundle.loadString('assets/gtfs/terminals.json')) as List;
+    final schedulesRaw = jsonDecode(await rootBundle.loadString('assets/gtfs/schedules.json')) as Map<String, dynamic>;
 
     _stops = stopsRaw.map((e) => BusStop.fromJson(Map<String, dynamic>.from(e))).toList(growable: false);
     _stopRoutes = stopRoutesRaw.map((k, v) => MapEntry(k, (v as List).map((e) => e.toString()).toList(growable: false)));
     _routes = routesRaw.map((k, v) => MapEntry(k, BusRoute.fromJson(k, Map<String, dynamic>.from(v))));
     _terminals = terminalsRaw.map((item) => BusTerminal.fromJson(Map<String, dynamic>.from(item))).toList(growable: false);
     _terminalStopIds = _terminals.expand((terminal) => terminal.platforms).expand((platform) => platform.stopIds).toSet();
+    _schedules = schedulesRaw.map((id, value) => MapEntry(id, RouteSchedule.fromJson(Map<String, dynamic>.from(value))));
     _shapes = shapesRaw.map((k, v) => MapEntry(k, (v as List).map((p) {
       final pair = p as List;
       return LatLng((pair[0] as num).toDouble(), (pair[1] as num).toDouble());
@@ -98,6 +101,8 @@ class GtfsRepository {
     }
     return result.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
   }
+
+  RouteSchedule? scheduleFor(BusRoute route) => _schedules[route.id];
 
   List<LatLng> shapeFor(BusRoute route) => route.shapeId == null ? const [] : (_shapes[route.shapeId!] ?? const []);
 }
