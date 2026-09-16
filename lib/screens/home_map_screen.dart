@@ -30,6 +30,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   LatLng? _addressLocation;
   String? _addressLabel;
   List<BusStop> _nearby = const [];
+  List<BusTerminal> _nearbyTerminals = const [];
   String? _error;
   bool _loading = true;
   bool _hasCenteredOnLocation = false;
@@ -66,12 +67,14 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   void _applyLocation(Position p, {required bool moveMap}) {
     final me = LatLng(p.latitude, p.longitude);
     final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
+    final terminals = widget.gtfs.terminalsNearby(p.latitude, p.longitude, radiusMeters: 1200);
     if (!mounted) return;
     setState(() {
       _me = me;
       if (_nearbyCenter == null) {
         _nearbyCenter = me;
-        _nearby = stops;
+        _nearby = stops.where((stop) => !widget.gtfs.isTerminalStop(stop)).toList(growable: false);
+        _nearbyTerminals = terminals;
       }
     });
     // A câmera é posicionada somente uma vez, na abertura da tela.
@@ -258,13 +261,19 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                                           result.longitude,
                                           radiusMeters: 1200,
                                         );
+                                        final terminals = widget.gtfs.terminalsNearby(
+                                          result.latitude,
+                                          result.longitude,
+                                          radiusMeters: 1200,
+                                        );
                                         Navigator.pop(sheetContext);
                                         if (!mounted) return;
                                         setState(() {
                                           _addressLocation = location;
                                           _addressLabel = result.label;
                                           _nearbyCenter = location;
-                                          _nearby = stops;
+                                          _nearby = stops.where((stop) => !widget.gtfs.isTerminalStop(stop)).toList(growable: false);
+                                          _nearbyTerminals = terminals;
                                         });
                                         _map.move(location, 16.5);
                                       },
@@ -279,6 +288,60 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
       ),
     );
     controller.dispose();
+  }
+
+  Future<void> _openTerminal(BusTerminal terminal) async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * .76,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(terminal.name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text('${terminal.platforms.length} plataforma(s)', style: Theme.of(context).textTheme.bodyMedium),
+              ]),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                itemCount: terminal.platforms.length,
+                itemBuilder: (_, index) {
+                  final platform = terminal.platforms[index];
+                  final routes = widget.gtfs.routesForPlatform(platform);
+                  return ExpansionTile(
+                    leading: CircleAvatar(child: Text('${index + 1}')),
+                    title: Text(platform.name),
+                    subtitle: Text('${routes.length} linha(s)'),
+                    children: routes.map((route) => ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+                      leading: Container(
+                        width: 52, height: 40, alignment: Alignment.center,
+                        decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, borderRadius: BorderRadius.circular(12)),
+                        child: Text(route.shortName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+                      ),
+                      title: Text(route.longName.isEmpty ? route.shortName : route.longName, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () {
+                        final stop = widget.gtfs.stopForRoute(platform, route);
+                        Navigator.pop(context);
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => RouteMapScreen(route: route, stop: stop, initialLocation: _me, gtfs: widget.gtfs, api: widget.api)));
+                      },
+                    )).toList(growable: false),
+                  );
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   Future<void> _openStop(BusStop stop) async {
@@ -344,6 +407,19 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     );
   }
 
+  Widget _terminalMarker(BusTerminal terminal) => GestureDetector(
+    onTap: () => _openTerminal(terminal),
+    child: Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF075D9E),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white, width: 2.5),
+        boxShadow: const [BoxShadow(blurRadius: 5, offset: Offset(0, 2), color: Colors.black26)],
+      ),
+      child: const Icon(Icons.directions_bus_rounded, color: Colors.white, size: 23),
+    ),
+  );
+
   Widget _stopMarker(BusStop stop) => GestureDetector(
     onTap: () => _openStop(stop),
     child: Container(
@@ -381,7 +457,8 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   @override
   Widget build(BuildContext context) {
     final initial = _me ?? const LatLng(-23.55052, -46.633308);
-    final visibleStops = _nearby.take(3).toList(growable: false);
+    final visibleTerminals = _nearbyTerminals.take(2).toList(growable: false);
+    final visibleStops = _nearby.take(3 - visibleTerminals.length).toList(growable: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -442,12 +519,13 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
             MarkerLayer(markers: [
               if (_addressLocation != null) Marker(point: _addressLocation!, width: 42, height: 42, child: _addressMarker()),
               if (_me != null) Marker(point: _me!, width: 46, height: 46, child: _locationMarker()),
+              ..._nearbyTerminals.map((terminal) => Marker(point: LatLng(terminal.lat, terminal.lon), width: 42, height: 42, child: _terminalMarker(terminal))),
               ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 34, height: 34, child: _stopMarker(stop))),
             ]),
             RichAttributionWidget(attributions: const [TextSourceAttribution('OpenStreetMap contributors')]),
           ],
         ),
-        if (!_loading && visibleStops.isNotEmpty)
+        if (!_loading && (visibleTerminals.isNotEmpty || visibleStops.isNotEmpty))
           Positioned(
             left: 14,
             right: 14,
@@ -460,13 +538,22 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                   Row(children: [
                     Text(_addressLabel == null ? 'Pontos próximos' : 'Pontos perto do endereço', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
                     const Spacer(),
-                    Text('${_nearby.length} encontrados', style: Theme.of(context).textTheme.bodySmall),
+                    Text('${_nearby.length + _nearbyTerminals.length} encontrados', style: Theme.of(context).textTheme.bodySmall),
                   ]),
                   if (_addressLabel != null) ...[
                     const SizedBox(height: 3),
                     Text(_addressLabel!, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
                   ],
                   const SizedBox(height: 6),
+                  ...visibleTerminals.map((terminal) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(radius: 20, child: Icon(Icons.directions_bus_rounded, size: 19)),
+                    title: Text(terminal.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text('${terminal.platforms.length} plataforma(s)'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => _openTerminal(terminal),
+                  )),
                   ...visibleStops.map((stop) => ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,

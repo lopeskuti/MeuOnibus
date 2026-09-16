@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import math
+import re
 import sys
 import zipfile
 from collections import defaultdict
@@ -14,6 +15,56 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'assets' / 'gtfs'
 SHAPE_SIMPLIFY_METERS = 8.0
 COORD_DECIMALS = 5
+TERMINAL_PATTERN = re.compile(r'\b(?:terminal|term\.)\s+(.+?)(?=\s*(?:[-–—]\s*)?(?:plataforma|plat\.)\b|\s+ref\.:|$)', re.IGNORECASE)
+PLATFORM_PATTERN = re.compile(r'\b(?:plataforma|plat\.)\s*([a-z0-9]+)\b', re.IGNORECASE)
+SIDE_PATTERN = re.compile(r'\(lado\s+([^)]+)\)', re.IGNORECASE)
+
+
+def _terminal_metadata(row: dict[str, str]) -> tuple[str, str] | None:
+    for value in (row.get('stop_name') or '', row.get('stop_desc') or ''):
+        match = TERMINAL_PATTERN.search(value)
+        if not match:
+            continue
+        raw_name = ' '.join(match.group(1).split())
+        side_match = SIDE_PATTERN.search(raw_name)
+        terminal_name = SIDE_PATTERN.sub('', raw_name).strip(' -–—')
+        if not terminal_name:
+            continue
+        platform_match = PLATFORM_PATTERN.search(value)
+        platform_name = f'Plataforma {platform_match.group(1).upper()}' if platform_match else 'Ponto do terminal'
+        if side_match:
+            platform_name = f'Lado {side_match.group(1).strip().title()} • {platform_name}'
+        return f'Terminal {terminal_name}', platform_name
+    return None
+
+
+def _terminal_id(name: str) -> str:
+    normalised = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+    return f'terminal-{normalised}'
+
+
+def build_terminals(stops: list[dict], source_rows: dict[str, dict[str, str]]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for stop in stops:
+        metadata = _terminal_metadata(source_rows[stop['id']])
+        if metadata is None:
+            continue
+        terminal_name, platform_name = metadata
+        terminal_id = _terminal_id(terminal_name)
+        terminal = grouped.setdefault(terminal_id, {'id': terminal_id, 'name': terminal_name, 'stops': [], 'platforms': defaultdict(list)})
+        terminal['stops'].append(stop)
+        terminal['platforms'][platform_name].append(stop['id'])
+    result = []
+    for terminal in grouped.values():
+        terminal_stops = terminal['stops']
+        result.append({
+            'id': terminal['id'],
+            'name': terminal['name'],
+            'lat': round(sum(stop['lat'] for stop in terminal_stops) / len(terminal_stops), 6),
+            'lon': round(sum(stop['lon'] for stop in terminal_stops) / len(terminal_stops), 6),
+            'platforms': [{'name': name, 'stopIds': sorted(ids)} for name, ids in sorted(terminal['platforms'].items())],
+        })
+    return sorted(result, key=lambda terminal: terminal['name'])
 
 
 def rows(z: zipfile.ZipFile, name: str):
@@ -81,17 +132,15 @@ def main(path: str) -> None:
             raise SystemExit(f'GTFS sem arquivos obrigatórios: {sorted(missing)}')
 
         stops = []
+        stop_source_rows = {}
         for r in rows(z, 'stops.txt'):
             try:
                 lat, lon = float(r['stop_lat']), float(r['stop_lon'])
             except (ValueError, KeyError):
                 continue
-            stops.append({
-                'id': r['stop_id'],
-                'name': r.get('stop_name') or 'Ponto',
-                'lat': round(lat, 6),
-                'lon': round(lon, 6),
-            })
+            stop = {'id': r['stop_id'], 'name': r.get('stop_name') or 'Ponto', 'lat': round(lat, 6), 'lon': round(lon, 6)}
+            stops.append(stop)
+            stop_source_rows[stop['id']] = r
 
         base_routes = {}
         for r in rows(z, 'routes.txt'):
@@ -139,6 +188,7 @@ def main(path: str) -> None:
             shape_id: simplify_shape(points, SHAPE_SIMPLIFY_METERS)
             for shape_id, points in shapes.items()
         }
+        terminals = build_terminals(stops, stop_source_rows)
 
     (OUT / 'stops.json').write_text(
         json.dumps(stops, ensure_ascii=False, separators=(',', ':')), encoding='utf-8'
@@ -150,13 +200,14 @@ def main(path: str) -> None:
         json.dumps({k: sorted(v) for k, v in stop_routes.items()}, ensure_ascii=False, separators=(',', ':')),
         encoding='utf-8',
     )
+    (OUT / 'terminals.json').write_text(json.dumps(terminals, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
     (OUT / 'shapes.json').write_text(
         json.dumps(compact_shapes, ensure_ascii=False, separators=(',', ':')), encoding='utf-8'
     )
 
     shape_points = sum(len(points) for points in compact_shapes.values())
     print(
-        f'OK: {len(stops)} pontos, {len(variants)} variantes, '
+        f'OK: {len(stops)} pontos, {len(terminals)} terminais, {len(variants)} variantes, '
         f'{len(compact_shapes)} shapes, {shape_points} pontos de shape simplificados'
     )
 

@@ -22,6 +22,7 @@ flutter:
     - assets/gtfs/stop_routes.json
     - assets/gtfs/routes.json
     - assets/gtfs/shapes.json
+    - assets/gtfs/terminals.json
 
 dev_dependencies:
   flutter_test:
