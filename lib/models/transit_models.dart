@@ -87,3 +87,25 @@ class BusTerminal {
             .toList(growable: false),
       );
 }
+
+
+class RouteSchedule {
+  final String operatingDays;
+  final String firstDeparture;
+  final String lastDeparture;
+  final int? averageHeadwayMinutes;
+
+  const RouteSchedule({
+    required this.operatingDays,
+    required this.firstDeparture,
+    required this.lastDeparture,
+    this.averageHeadwayMinutes,
+  });
+
+  factory RouteSchedule.fromJson(Map<String, dynamic> json) => RouteSchedule(
+        operatingDays: (json['operatingDays'] ?? 'Consulte a operação').toString(),
+        firstDeparture: (json['firstDeparture'] ?? '--:--').toString(),
+        lastDeparture: (json['lastDeparture'] ?? '--:--').toString(),
+        averageHeadwayMinutes: (json['averageHeadwayMinutes'] as num?)?.round(),
+      );
+}
