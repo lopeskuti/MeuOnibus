@@ -267,6 +267,18 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                     else
                       Text('Sem previsão disponível para este ponto', style: Theme.of(context).textTheme.bodySmall),
                     Text('${_vehicles.length} ônibus em circulação • atualização a cada 15 s', style: Theme.of(context).textTheme.bodySmall),
+                    if (schedule != null) ...[
+                      const Padding(padding: EdgeInsets.only(top: 8), child: Divider(height: 1)),
+                      const SizedBox(height: 8),
+                      const Text('Horários programados', style: TextStyle(fontWeight: FontWeight.w700)),
+                      Text(schedule.operatingDays, style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        Expanded(child: _scheduleItem('Primeiro', schedule.firstDeparture)),
+                        Expanded(child: _scheduleItem('Último', schedule.lastDeparture)),
+                        Expanded(child: _scheduleItem('Espera média', schedule.averageHeadwayMinutes == null ? '—' : '${schedule.averageHeadwayMinutes} min')),
+                      ]),
+                    ],
                   ]),
                 ),
               ]),
