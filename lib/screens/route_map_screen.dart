@@ -37,6 +37,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   List<ArrivalPrediction> _arrivals = const [];
   Timer? _timer;
   int? _lineCode;
+  int? _arrivalStopCode;
+  String? _arrivalError;
   LatLng? _me;
   String? _error;
   bool _loading = false;
@@ -47,6 +49,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     _me = widget.initialLocation;
     _startLocationTracking();
     _initRealtime();
+    if (widget.stop == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fitRoute());
+    }
   }
 
   Future<void> _startLocationTracking() async {
@@ -69,13 +74,36 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final me = LatLng(position.latitude, position.longitude);
     if (!mounted) return;
     setState(() => _me = me);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _map.move(me, 16));
+    if (widget.stop != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _map.move(me, 16));
+    }
+  }
+
+  void _fitRoute() {
+    final shape = widget.gtfs.shapeFor(widget.route);
+    if (!mounted || shape.length < 2) return;
+    _map.fitCamera(CameraFit.bounds(
+      bounds: LatLngBounds.fromPoints(shape),
+      padding: const EdgeInsets.fromLTRB(34, 112, 34, 180),
+      maxZoom: 16,
+    ));
   }
 
   Future<void> _initRealtime() async {
     try {
       _lineCode = widget.route.sptransCode ?? await widget.api.resolveLineCode(widget.route);
       if (_lineCode == null) throw OlhoVivoException('Não encontrei esta linha na Olho Vivo.');
+      final stop = widget.stop;
+      if (stop != null) {
+        try {
+          _arrivalStopCode = await widget.api.resolveStopCode(_lineCode!, stop);
+          if (_arrivalStopCode == null) {
+            _arrivalError = 'Não encontrei o código operacional deste ponto na SPTrans.';
+          }
+        } catch (e) {
+          _arrivalError = 'Não foi possível localizar este ponto na SPTrans: $e';
+        }
+      }
       await _refresh();
       _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
     } catch (e) {
@@ -90,13 +118,24 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     try {
       final vehicles = await widget.api.vehicles(code);
       List<ArrivalPrediction> arrivals = const [];
-      try {
-        final stop = widget.stop;
-        if (stop != null) arrivals = await widget.api.arrivals(code, stop.id);
-      } catch (_) {
-        // Mantém o mapa funcionando mesmo quando a previsão estiver indisponível.
+      var arrivalError = _arrivalError;
+      final arrivalStopCode = _arrivalStopCode;
+      if (widget.stop != null && arrivalStopCode != null) {
+        try {
+          arrivals = await widget.api.arrivals(code, '$arrivalStopCode');
+          arrivalError = null;
+        } catch (e) {
+          arrivalError = 'Não foi possível carregar a previsão: $e';
+        }
       }
-      if (mounted) setState(() { _vehicles = vehicles; _arrivals = arrivals; _error = null; });
+      if (mounted) {
+        setState(() {
+          _vehicles = vehicles;
+          _arrivals = arrivals;
+          _arrivalError = arrivalError;
+          _error = null;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -139,6 +178,14 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     ),
   ]);
 
+  Widget _scheduleItem(String label, String value) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+      Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+    ],
+  );
+
   Widget _selectedStopMarker() => Container(
     decoration: BoxDecoration(
       color: const Color(0xFF0B8F55),
@@ -155,6 +202,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final stop = widget.stop;
     final initial = _me ?? (stop == null ? (shape.isNotEmpty ? shape.first : const LatLng(-23.55052, -46.633308)) : LatLng(stop.lat, stop.lon));
     final nextArrival = _arrivals.isEmpty ? null : _arrivals.first;
+    final schedule = widget.gtfs.scheduleFor(widget.route);
 
     return Scaffold(
       appBar: AppBar(
@@ -167,6 +215,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         ]),
         actions: [
           IconButton(onPressed: _me == null ? null : () => _map.move(_me!, 16), tooltip: 'Minha localização', icon: const Icon(Icons.my_location_rounded)),
+          IconButton(onPressed: _fitRoute, tooltip: 'Ver trajeto completo', icon: const Icon(Icons.route_rounded)),
           IconButton(onPressed: _loading ? null : _refresh, tooltip: 'Atualizar ônibus', icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.refresh_rounded)),
           const SizedBox(width: 6),
         ],
@@ -239,9 +288,23 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                             : 'Próximo ônibus em ${nextArrival.minutes} min • ${nextArrival.expectedAt}',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                       )
+                    else if (_arrivalError != null)
+                      Text(_arrivalError!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error))
                     else
-                      Text('Sem previsão disponível para este ponto', style: Theme.of(context).textTheme.bodySmall),
+                      Text('A SPTrans não reportou previsão para este ponto agora.', style: Theme.of(context).textTheme.bodySmall),
                     Text('${_vehicles.length} ônibus em circulação • atualização a cada 15 s', style: Theme.of(context).textTheme.bodySmall),
+                    if (schedule != null) ...[
+                      const Padding(padding: EdgeInsets.only(top: 8), child: Divider(height: 1)),
+                      const SizedBox(height: 8),
+                      const Text('Horários programados', style: TextStyle(fontWeight: FontWeight.w700)),
+                      Text(schedule.operatingDays, style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        Expanded(child: _scheduleItem('Primeiro', schedule.firstDeparture)),
+                        Expanded(child: _scheduleItem('Último', schedule.lastDeparture)),
+                        Expanded(child: _scheduleItem('Espera média', schedule.averageHeadwayMinutes == null ? '—' : '${schedule.averageHeadwayMinutes} min')),
+                      ]),
+                    ],
                   ]),
                 ),
               ]),

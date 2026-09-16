@@ -58,3 +58,54 @@ class StopLine {
 
   const StopLine({required this.sptransCode, required this.display, required this.destination, required this.direction});
 }
+
+
+class BusTerminalPlatform {
+  final String name;
+  final List<String> stopIds;
+  const BusTerminalPlatform({required this.name, required this.stopIds});
+  factory BusTerminalPlatform.fromJson(Map<String, dynamic> json) => BusTerminalPlatform(
+        name: (json['name'] ?? 'Plataforma').toString(),
+        stopIds: (json['stopIds'] as List? ?? const []).map((id) => id.toString()).toList(growable: false),
+      );
+}
+
+class BusTerminal {
+  final String id;
+  final String name;
+  final double lat;
+  final double lon;
+  final List<BusTerminalPlatform> platforms;
+  const BusTerminal({required this.id, required this.name, required this.lat, required this.lon, required this.platforms});
+  factory BusTerminal.fromJson(Map<String, dynamic> json) => BusTerminal(
+        id: json['id'].toString(),
+        name: (json['name'] ?? 'Terminal').toString(),
+        lat: (json['lat'] as num).toDouble(),
+        lon: (json['lon'] as num).toDouble(),
+        platforms: (json['platforms'] as List? ?? const [])
+            .map((item) => BusTerminalPlatform.fromJson(Map<String, dynamic>.from(item)))
+            .toList(growable: false),
+      );
+}
+
+
+class RouteSchedule {
+  final String operatingDays;
+  final String firstDeparture;
+  final String lastDeparture;
+  final int? averageHeadwayMinutes;
+
+  const RouteSchedule({
+    required this.operatingDays,
+    required this.firstDeparture,
+    required this.lastDeparture,
+    this.averageHeadwayMinutes,
+  });
+
+  factory RouteSchedule.fromJson(Map<String, dynamic> json) => RouteSchedule(
+        operatingDays: (json['operatingDays'] ?? 'Consulte a operação').toString(),
+        firstDeparture: (json['firstDeparture'] ?? '--:--').toString(),
+        lastDeparture: (json['lastDeparture'] ?? '--:--').toString(),
+        averageHeadwayMinutes: (json['averageHeadwayMinutes'] as num?)?.round(),
+      );
+}

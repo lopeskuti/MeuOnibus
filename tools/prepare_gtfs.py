@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import math
+import re
 import sys
 import zipfile
 from collections import defaultdict
@@ -14,12 +15,113 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'assets' / 'gtfs'
 SHAPE_SIMPLIFY_METERS = 8.0
 COORD_DECIMALS = 5
+TERMINAL_PATTERN = re.compile(r'\b(?:terminal|term\.)\s+(.+?)(?=\s*(?:[-–—]\s*)?(?:plataforma|plat\.)\b|\s+ref\.:|$)', re.IGNORECASE)
+PLATFORM_PATTERN = re.compile(r'\b(?:plataforma|plat\.)\s*([a-z0-9]+)\b', re.IGNORECASE)
+SIDE_PATTERN = re.compile(r'\(lado\s+([^)]+)\)', re.IGNORECASE)
+
+
+def _terminal_metadata(row: dict[str, str]) -> tuple[str, str] | None:
+    for value in (row.get('stop_name') or '', row.get('stop_desc') or ''):
+        match = TERMINAL_PATTERN.search(value)
+        if not match:
+            continue
+        raw_name = ' '.join(match.group(1).split())
+        side_match = SIDE_PATTERN.search(raw_name)
+        terminal_name = SIDE_PATTERN.sub('', raw_name).strip(' -–—')
+        if not terminal_name:
+            continue
+        platform_match = PLATFORM_PATTERN.search(value)
+        platform_name = f'Plataforma {platform_match.group(1).upper()}' if platform_match else 'Ponto do terminal'
+        if side_match:
+            platform_name = f'Lado {side_match.group(1).strip().title()} • {platform_name}'
+        return f'Terminal {terminal_name}', platform_name
+    return None
+
+
+def _terminal_id(name: str) -> str:
+    normalised = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+    return f'terminal-{normalised}'
+
+
+def build_terminals(stops: list[dict], source_rows: dict[str, dict[str, str]]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for stop in stops:
+        metadata = _terminal_metadata(source_rows[stop['id']])
+        if metadata is None:
+            continue
+        terminal_name, platform_name = metadata
+        terminal_id = _terminal_id(terminal_name)
+        terminal = grouped.setdefault(terminal_id, {'id': terminal_id, 'name': terminal_name, 'stops': [], 'platforms': defaultdict(list)})
+        terminal['stops'].append(stop)
+        terminal['platforms'][platform_name].append(stop['id'])
+    result = []
+    for terminal in grouped.values():
+        terminal_stops = terminal['stops']
+        result.append({
+            'id': terminal['id'],
+            'name': terminal['name'],
+            'lat': round(sum(stop['lat'] for stop in terminal_stops) / len(terminal_stops), 6),
+            'lon': round(sum(stop['lon'] for stop in terminal_stops) / len(terminal_stops), 6),
+            'platforms': [{'name': name, 'stopIds': sorted(ids)} for name, ids in sorted(terminal['platforms'].items())],
+        })
+    return sorted(result, key=lambda terminal: terminal['name'])
 
 
 def rows(z: zipfile.ZipFile, name: str):
     with z.open(name) as raw:
         text = io.TextIOWrapper(raw, encoding='utf-8-sig', newline='')
         yield from csv.DictReader(text)
+
+
+def _seconds(value: str) -> int | None:
+    try:
+        hours, minutes, seconds = (int(part) for part in value.split(':'))
+        return hours * 3600 + minutes * 60 + seconds
+    except (AttributeError, ValueError):
+        return None
+
+
+def _time_label(seconds: int) -> str:
+    return f'{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}'
+
+
+def _days_label(flags: set[str]) -> str:
+    weekdays = {'monday', 'tuesday', 'wednesday', 'thursday', 'friday'}
+    if flags == weekdays:
+        return 'Segunda a sexta'
+    if flags == weekdays | {'saturday'}:
+        return 'Segunda a sábado'
+    if flags == weekdays | {'saturday', 'sunday'}:
+        return 'Todos os dias'
+    if flags == {'saturday'}:
+        return 'Sábados'
+    if flags == {'sunday'}:
+        return 'Domingos'
+    labels = {'monday': 'Seg', 'tuesday': 'Ter', 'wednesday': 'Qua', 'thursday': 'Qui', 'friday': 'Sex', 'saturday': 'Sáb', 'sunday': 'Dom'}
+    return ', '.join(labels[day] for day in labels if day in flags)
+
+
+def build_schedules(
+    first_departures: dict[str, dict[str, list[int]]],
+    service_days: dict[str, set[str]],
+) -> dict[str, dict]:
+    schedules = {}
+    for variant_id, by_service in first_departures.items():
+        departures = [time for times in by_service.values() for time in times]
+        if not departures:
+            continue
+        days = set().union(*(service_days.get(service_id, set()) for service_id in by_service))
+        gaps = []
+        for times in by_service.values():
+            ordered = sorted(set(times))
+            gaps.extend(right - left for left, right in zip(ordered, ordered[1:]) if right - left <= 7200)
+        schedules[variant_id] = {
+            'operatingDays': _days_label(days) or 'Consulte a operação',
+            'firstDeparture': _time_label(min(departures)),
+            'lastDeparture': _time_label(max(departures)),
+            'averageHeadwayMinutes': round(sum(gaps) / len(gaps) / 60) if gaps else None,
+        }
+    return schedules
 
 
 def simplify_shape(points: list[tuple[int, float, float]], epsilon_m: float) -> list[list[float]]:
@@ -75,23 +177,21 @@ def main(path: str) -> None:
 
     with zipfile.ZipFile(path) as z:
         names = set(z.namelist())
-        required = {'stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 'shapes.txt'}
+        required = {'stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 'shapes.txt', 'calendar.txt'}
         missing = required - names
         if missing:
             raise SystemExit(f'GTFS sem arquivos obrigatórios: {sorted(missing)}')
 
         stops = []
+        stop_source_rows = {}
         for r in rows(z, 'stops.txt'):
             try:
                 lat, lon = float(r['stop_lat']), float(r['stop_lon'])
             except (ValueError, KeyError):
                 continue
-            stops.append({
-                'id': r['stop_id'],
-                'name': r.get('stop_name') or 'Ponto',
-                'lat': round(lat, 6),
-                'lon': round(lon, 6),
-            })
+            stop = {'id': r['stop_id'], 'name': r.get('stop_name') or 'Ponto', 'lat': round(lat, 6), 'lon': round(lon, 6)}
+            stops.append(stop)
+            stop_source_rows[stop['id']] = r
 
         base_routes = {}
         for r in rows(z, 'routes.txt'):
@@ -100,13 +200,22 @@ def main(path: str) -> None:
                 'longName': r.get('route_long_name') or '',
             }
 
+        service_days = {}
+        for r in rows(z, 'calendar.txt'):
+            service_days[r['service_id']] = {
+                day for day in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
+                if r.get(day) == '1'
+            }
+
         variant_by_trip = {}
+        service_by_trip = {}
         variants = {}
         for r in rows(z, 'trips.txt'):
             route_id = r['route_id']
             direction = r.get('direction_id') or '0'
             variant_id = f'{route_id}:{direction}'
             variant_by_trip[r['trip_id']] = variant_id
+            service_by_trip[r['trip_id']] = r.get('service_id') or ''
             if variant_id not in variants:
                 base = base_routes.get(route_id, {'shortName': route_id, 'longName': ''})
                 variants[variant_id] = {
@@ -116,10 +225,28 @@ def main(path: str) -> None:
                 }
 
         stop_routes = defaultdict(set)
+        first_departure_by_trip = {}
         for r in rows(z, 'stop_times.txt'):
-            variant_id = variant_by_trip.get(r['trip_id'])
+            trip_id = r['trip_id']
+            variant_id = variant_by_trip.get(trip_id)
             if variant_id:
                 stop_routes[r['stop_id']].add(variant_id)
+                seconds = _seconds(r.get('departure_time') or r.get('arrival_time') or '')
+                try:
+                    sequence = int(r.get('stop_sequence') or 0)
+                except ValueError:
+                    sequence = 0
+                current = first_departure_by_trip.get(trip_id)
+                if seconds is not None and (current is None or sequence < current[0]):
+                    first_departure_by_trip[trip_id] = (sequence, seconds)
+
+        departures_by_variant = defaultdict(lambda: defaultdict(list))
+        for trip_id, (_, seconds) in first_departure_by_trip.items():
+            variant_id = variant_by_trip.get(trip_id)
+            service_id = service_by_trip.get(trip_id)
+            if variant_id and service_id:
+                departures_by_variant[variant_id][service_id].append(seconds)
+        schedules = build_schedules(departures_by_variant, service_days)
 
         used_shapes = {v['shapeId'] for v in variants.values() if v.get('shapeId')}
         shapes = defaultdict(list)
@@ -139,6 +266,7 @@ def main(path: str) -> None:
             shape_id: simplify_shape(points, SHAPE_SIMPLIFY_METERS)
             for shape_id, points in shapes.items()
         }
+        terminals = build_terminals(stops, stop_source_rows)
 
     (OUT / 'stops.json').write_text(
         json.dumps(stops, ensure_ascii=False, separators=(',', ':')), encoding='utf-8'
@@ -150,13 +278,15 @@ def main(path: str) -> None:
         json.dumps({k: sorted(v) for k, v in stop_routes.items()}, ensure_ascii=False, separators=(',', ':')),
         encoding='utf-8',
     )
+    (OUT / 'terminals.json').write_text(json.dumps(terminals, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    (OUT / 'schedules.json').write_text(json.dumps(schedules, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
     (OUT / 'shapes.json').write_text(
         json.dumps(compact_shapes, ensure_ascii=False, separators=(',', ':')), encoding='utf-8'
     )
 
     shape_points = sum(len(points) for points in compact_shapes.values())
     print(
-        f'OK: {len(stops)} pontos, {len(variants)} variantes, '
+        f'OK: {len(stops)} pontos, {len(terminals)} terminais, {len(schedules)} horários, {len(variants)} variantes, '
         f'{len(compact_shapes)} shapes, {shape_points} pontos de shape simplificados'
     )
 

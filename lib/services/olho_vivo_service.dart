@@ -33,6 +33,20 @@ class OlhoVivoLine {
       );
 }
 
+class OlhoVivoStop {
+  final int code;
+  final String name;
+  final double lat;
+  final double lon;
+  const OlhoVivoStop({required this.code, required this.name, required this.lat, required this.lon});
+  factory OlhoVivoStop.fromJson(Map<String, dynamic> json) => OlhoVivoStop(
+        code: (json['cp'] as num).toInt(),
+        name: (json['np'] ?? '').toString(),
+        lat: (json['py'] as num).toDouble(),
+        lon: (json['px'] as num).toDouble(),
+      );
+}
+
 class ArrivalPrediction {
   final String prefix;
   final int minutes;
@@ -114,6 +128,39 @@ class OlhoVivoService {
 
   String _digits(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
   String _normalize(String s) => s.toUpperCase().replaceAll(RegExp(r'[ÁÀÂÃ]'), 'A').replaceAll(RegExp(r'[ÉÈÊ]'), 'E').replaceAll(RegExp(r'[ÍÌÎ]'), 'I').replaceAll(RegExp(r'[ÓÒÔÕ]'), 'O').replaceAll(RegExp(r'[ÚÙÛ]'), 'U').replaceAll('Ç', 'C').replaceAll(RegExp(r'[^A-Z0-9 ]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  Future<List<OlhoVivoStop>> stopsForLine(int lineCode) async {
+    final uri = Uri.parse('$_baseUrl/Parada/BuscarParadasPorLinha').replace(queryParameters: {'codigoLinha': '$lineCode'});
+    final response = await _get(uri);
+    if (response.statusCode != 200) {
+      throw OlhoVivoException('Erro ao localizar paradas da linha (${response.statusCode}).');
+    }
+    final data = jsonDecode(response.body);
+    if (data is! List) return const [];
+    return data.whereType<Map>().map((item) => OlhoVivoStop.fromJson(Map<String, dynamic>.from(item))).toList(growable: false);
+  }
+
+  Future<int?> resolveStopCode(int lineCode, BusStop stop) async {
+    final stops = await stopsForLine(lineCode);
+    OlhoVivoStop? closest;
+    var closestMeters = double.infinity;
+    for (final candidate in stops) {
+      final meters = _distanceMeters(stop.lat, stop.lon, candidate.lat, candidate.lon);
+      if (meters < closestMeters) { closest = candidate; closestMeters = meters; }
+    }
+    return closestMeters <= 250 ? closest?.code : null;
+  }
+
+  double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+    const earthRadius = 6371000.0;
+    final dLat = _radians(lat2 - lat1);
+    final dLon = _radians(lon2 - lon1);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_radians(lat1)) * math.cos(_radians(lat2)) * math.sin(dLon / 2) * math.sin(dLon / 2);
+    return earthRadius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  double _radians(double degrees) => degrees * math.pi / 180;
 
   Future<List<VehiclePosition>> vehicles(int lineCode) async {
     final uri = Uri.parse('$_baseUrl/Posicao/Linha').replace(queryParameters: {'codigoLinha': '$lineCode'});
