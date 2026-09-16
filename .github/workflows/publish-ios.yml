@@ -54,6 +54,38 @@ jobs:
         run: ./tools/bootstrap.sh
       - name: Prepare current SPTrans GTFS
         run: bash tools/fetch_gtfs.sh
+      - name: Verify prepared GTFS assets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          directory = Path('assets/gtfs')
+          expected = {
+              'stops.json': list,
+              'stop_routes.json': dict,
+              'routes.json': dict,
+              'shapes.json': dict,
+          }
+
+          counts = {}
+          for name, expected_type in expected.items():
+              path = directory / name
+              if not path.is_file() or path.stat().st_size <= 2:
+                  raise SystemExit(f'::error::GTFS asset is missing or empty: {path}')
+              with path.open(encoding='utf-8') as asset:
+                  data = json.load(asset)
+              if not isinstance(data, expected_type) or not data:
+                  raise SystemExit(f'::error::GTFS asset has no usable data: {path}')
+              counts[name] = len(data)
+
+          print(
+              'GTFS assets ready: '
+              + ', '.join(f'{name}={count}' for name, count in counts.items())
+          )
+          PY
+          du -h assets/gtfs/*.json
       - name: Check required secrets
         shell: bash
         run: |
