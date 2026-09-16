@@ -25,6 +25,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   final _location = LocationService();
   final _addressSearch = AddressSearchService();
   StreamSubscription<Position>? _locationSubscription;
+  Timer? _mapMoveDebounce;
   LatLng? _me;
   LatLng? _nearbyCenter;
   LatLng? _addressLocation;
@@ -85,6 +86,19 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
         if (mounted && !_userHasInteractedWithMap) _map.move(me, _followZoom);
       });
     }
+  }
+
+  void _loadStopsAround(LatLng center) {
+    final stops = widget.gtfs.nearby(center.latitude, center.longitude, radiusMeters: 1200);
+    final terminals = widget.gtfs.terminalsNearby(center.latitude, center.longitude, radiusMeters: 1200);
+    if (!mounted) return;
+    setState(() {
+      _nearbyCenter = center;
+      _nearby = stops.where((stop) => !widget.gtfs.isTerminalStop(stop)).toList(growable: false);
+      _nearbyTerminals = terminals;
+      _addressLocation = null;
+      _addressLabel = null;
+    });
   }
 
   String _distanceLabel(BusStop stop) {
@@ -413,7 +427,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF075D9E),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white, width: 2.5),
+        border: Border.all(color: Colors.white, width: 2),
         boxShadow: const [BoxShadow(blurRadius: 5, offset: Offset(0, 2), color: Colors.black26)],
       ),
       child: const Icon(Icons.directions_bus_rounded, color: Colors.white, size: 23),
@@ -429,7 +443,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
         border: Border.all(color: Colors.white, width: 2.5),
         boxShadow: const [BoxShadow(blurRadius: 5, offset: Offset(0, 2), color: Colors.black26)],
       ),
-      child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white, size: 18),
+      child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white, size: 14),
     ),
   );
 
@@ -451,6 +465,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   @override
   void dispose() {
     _locationSubscription?.cancel();
+    _mapMoveDebounce?.cancel();
     super.dispose();
   }
 
@@ -510,8 +525,11 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
             initialZoom: _followZoom,
             minZoom: 10,
             maxZoom: 19,
-            onPositionChanged: (_, hasGesture) {
-              if (hasGesture) _userHasInteractedWithMap = true;
+            onPositionChanged: (camera, hasGesture) {
+              if (!hasGesture) return;
+              _userHasInteractedWithMap = true;
+              _mapMoveDebounce?.cancel();
+              _mapMoveDebounce = Timer(const Duration(milliseconds: 250), () => _loadStopsAround(camera.center));
             },
           ),
           children: [
@@ -520,7 +538,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
               if (_addressLocation != null) Marker(point: _addressLocation!, width: 42, height: 42, child: _addressMarker()),
               if (_me != null) Marker(point: _me!, width: 46, height: 46, child: _locationMarker()),
               ..._nearbyTerminals.map((terminal) => Marker(point: LatLng(terminal.lat, terminal.lon), width: 42, height: 42, child: _terminalMarker(terminal))),
-              ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 34, height: 34, child: _stopMarker(stop))),
+              ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 26, height: 26, child: _stopMarker(stop))),
             ]),
             RichAttributionWidget(attributions: const [TextSourceAttribution('OpenStreetMap contributors')]),
           ],
