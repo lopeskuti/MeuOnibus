@@ -73,6 +73,57 @@ def rows(z: zipfile.ZipFile, name: str):
         yield from csv.DictReader(text)
 
 
+def _seconds(value: str) -> int | None:
+    try:
+        hours, minutes, seconds = (int(part) for part in value.split(':'))
+        return hours * 3600 + minutes * 60 + seconds
+    except (AttributeError, ValueError):
+        return None
+
+
+def _time_label(seconds: int) -> str:
+    return f'{seconds // 3600:02d}:{(seconds % 3600) // 60:02d}'
+
+
+def _days_label(flags: set[str]) -> str:
+    weekdays = {'monday', 'tuesday', 'wednesday', 'thursday', 'friday'}
+    if flags == weekdays:
+        return 'Segunda a sexta'
+    if flags == weekdays | {'saturday'}:
+        return 'Segunda a sábado'
+    if flags == weekdays | {'saturday', 'sunday'}:
+        return 'Todos os dias'
+    if flags == {'saturday'}:
+        return 'Sábados'
+    if flags == {'sunday'}:
+        return 'Domingos'
+    labels = {'monday': 'Seg', 'tuesday': 'Ter', 'wednesday': 'Qua', 'thursday': 'Qui', 'friday': 'Sex', 'saturday': 'Sáb', 'sunday': 'Dom'}
+    return ', '.join(labels[day] for day in labels if day in flags)
+
+
+def build_schedules(
+    first_departures: dict[str, dict[str, list[int]]],
+    service_days: dict[str, set[str]],
+) -> dict[str, dict]:
+    schedules = {}
+    for variant_id, by_service in first_departures.items():
+        departures = [time for times in by_service.values() for time in times]
+        if not departures:
+            continue
+        days = set().union(*(service_days.get(service_id, set()) for service_id in by_service))
+        gaps = []
+        for times in by_service.values():
+            ordered = sorted(set(times))
+            gaps.extend(right - left for left, right in zip(ordered, ordered[1:]) if right - left <= 7200)
+        schedules[variant_id] = {
+            'operatingDays': _days_label(days) or 'Consulte a operação',
+            'firstDeparture': _time_label(min(departures)),
+            'lastDeparture': _time_label(max(departures)),
+            'averageHeadwayMinutes': round(sum(gaps) / len(gaps) / 60) if gaps else None,
+        }
+    return schedules
+
+
 def simplify_shape(points: list[tuple[int, float, float]], epsilon_m: float) -> list[list[float]]:
     ordered = [(lat, lon) for _, lat, lon in sorted(points)]
     if len(ordered) <= 2:
@@ -126,7 +177,7 @@ def main(path: str) -> None:
 
     with zipfile.ZipFile(path) as z:
         names = set(z.namelist())
-        required = {'stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 'shapes.txt'}
+        required = {'stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 'shapes.txt', 'calendar.txt'}
         missing = required - names
         if missing:
             raise SystemExit(f'GTFS sem arquivos obrigatórios: {sorted(missing)}')
@@ -149,13 +200,22 @@ def main(path: str) -> None:
                 'longName': r.get('route_long_name') or '',
             }
 
+        service_days = {}
+        for r in rows(z, 'calendar.txt'):
+            service_days[r['service_id']] = {
+                day for day in ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
+                if r.get(day) == '1'
+            }
+
         variant_by_trip = {}
+        service_by_trip = {}
         variants = {}
         for r in rows(z, 'trips.txt'):
             route_id = r['route_id']
             direction = r.get('direction_id') or '0'
             variant_id = f'{route_id}:{direction}'
             variant_by_trip[r['trip_id']] = variant_id
+            service_by_trip[r['trip_id']] = r.get('service_id') or ''
             if variant_id not in variants:
                 base = base_routes.get(route_id, {'shortName': route_id, 'longName': ''})
                 variants[variant_id] = {
@@ -165,10 +225,28 @@ def main(path: str) -> None:
                 }
 
         stop_routes = defaultdict(set)
+        first_departure_by_trip = {}
         for r in rows(z, 'stop_times.txt'):
-            variant_id = variant_by_trip.get(r['trip_id'])
+            trip_id = r['trip_id']
+            variant_id = variant_by_trip.get(trip_id)
             if variant_id:
                 stop_routes[r['stop_id']].add(variant_id)
+                seconds = _seconds(r.get('departure_time') or r.get('arrival_time') or '')
+                try:
+                    sequence = int(r.get('stop_sequence') or 0)
+                except ValueError:
+                    sequence = 0
+                current = first_departure_by_trip.get(trip_id)
+                if seconds is not None and (current is None or sequence < current[0]):
+                    first_departure_by_trip[trip_id] = (sequence, seconds)
+
+        departures_by_variant = defaultdict(lambda: defaultdict(list))
+        for trip_id, (_, seconds) in first_departure_by_trip.items():
+            variant_id = variant_by_trip.get(trip_id)
+            service_id = service_by_trip.get(trip_id)
+            if variant_id and service_id:
+                departures_by_variant[variant_id][service_id].append(seconds)
+        schedules = build_schedules(departures_by_variant, service_days)
 
         used_shapes = {v['shapeId'] for v in variants.values() if v.get('shapeId')}
         shapes = defaultdict(list)
@@ -201,13 +279,14 @@ def main(path: str) -> None:
         encoding='utf-8',
     )
     (OUT / 'terminals.json').write_text(json.dumps(terminals, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    (OUT / 'schedules.json').write_text(json.dumps(schedules, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
     (OUT / 'shapes.json').write_text(
         json.dumps(compact_shapes, ensure_ascii=False, separators=(',', ':')), encoding='utf-8'
     )
 
     shape_points = sum(len(points) for points in compact_shapes.values())
     print(
-        f'OK: {len(stops)} pontos, {len(terminals)} terminais, {len(variants)} variantes, '
+        f'OK: {len(stops)} pontos, {len(terminals)} terminais, {len(schedules)} horários, {len(variants)} variantes, '
         f'{len(compact_shapes)} shapes, {shape_points} pontos de shape simplificados'
     )
 
