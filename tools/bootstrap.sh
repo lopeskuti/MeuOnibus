@@ -63,4 +63,5 @@ p.write_text(s)
 PY
 
 flutter pub get
+dart run flutter_launcher_icons
 printf '\nBootstrap concluído.\n'
