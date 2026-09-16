@@ -44,7 +44,7 @@ class GtfsRepository {
     if (terms.isEmpty) return const [];
 
     final matches = _routes.values.where((route) {
-      final searchable = _normalise('\undefined \undefined');
+      final searchable = _normalise('${route.shortName} ${route.longName}');
       return terms.every(searchable.contains);
     }).toList();
     matches.sort((a, b) {

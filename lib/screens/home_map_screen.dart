@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/transit_models.dart';
+import '../services/address_search_service.dart';
 import '../services/gtfs_repository.dart';
 import '../services/location_service.dart';
 import '../services/olho_vivo_service.dart';
@@ -22,8 +23,12 @@ class HomeMapScreen extends StatefulWidget {
 class _HomeMapScreenState extends State<HomeMapScreen> {
   final _map = MapController();
   final _location = LocationService();
+  final _addressSearch = AddressSearchService();
   StreamSubscription<Position>? _locationSubscription;
   LatLng? _me;
+  LatLng? _nearbyCenter;
+  LatLng? _addressLocation;
+  String? _addressLabel;
   List<BusStop> _nearby = const [];
   String? _error;
   bool _loading = true;
@@ -62,7 +67,13 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     final me = LatLng(p.latitude, p.longitude);
     final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
     if (!mounted) return;
-    setState(() { _me = me; _nearby = stops; });
+    setState(() {
+      _me = me;
+      if (_nearbyCenter == null) {
+        _nearbyCenter = me;
+        _nearby = stops;
+      }
+    });
     // A câmera é posicionada somente uma vez, na abertura da tela.
     // Depois disso, inclusive após qualquer gesto manual, somente o cursor muda.
     if (moveMap && !_hasCenteredOnLocation && !_userHasInteractedWithMap) {
@@ -74,10 +85,10 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   }
 
   String _distanceLabel(BusStop stop) {
-    final me = _me;
-    if (me == null) return '';
+    final reference = _nearbyCenter ?? _me;
+    if (reference == null) return '';
     const distance = Distance();
-    final meters = distance(me, LatLng(stop.lat, stop.lon)).round();
+    final meters = distance(reference, LatLng(stop.lat, stop.lon)).round();
     return meters < 1000 ? '$meters m' : '${(meters / 1000).toStringAsFixed(1)} km';
   }
 
@@ -153,6 +164,113 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                                 );
                               },
                             ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+  }
+
+  Future<void> _openAddressSearch() async {
+    final controller = TextEditingController();
+    var results = const <AddressResult>[];
+    var loading = false;
+    String? error;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * .74,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('Buscar endereço', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('Veja os pontos e as linhas próximos de qualquer endereço em São Paulo.', style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    hintText: 'Rua, número, bairro ou CEP',
+                    prefixIcon: Icon(Icons.location_searching_rounded),
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) async {
+                    final query = controller.text.trim();
+                    if (query.length < 3) {
+                      setSheetState(() => error = 'Digite pelo menos 3 caracteres.');
+                      return;
+                    }
+
+                    setSheetState(() {
+                      loading = true;
+                      error = null;
+                      results = const [];
+                    });
+                    try {
+                      final found = await _addressSearch.search(query);
+                      if (sheetContext.mounted) {
+                        setSheetState(() => results = found);
+                      }
+                    } catch (e) {
+                      if (sheetContext.mounted) {
+                        setSheetState(() => error = e.toString());
+                      }
+                    } finally {
+                      if (sheetContext.mounted) {
+                        setSheetState(() => loading = false);
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : error != null
+                          ? Center(child: Text(error!, textAlign: TextAlign.center))
+                          : results.isEmpty
+                              ? const Center(child: Text('Digite o endereço e toque em Buscar no teclado.'))
+                              : ListView.separated(
+                                  itemCount: results.length,
+                                  separatorBuilder: (_, _) => const Divider(height: 1, indent: 56),
+                                  itemBuilder: (_, index) {
+                                    final result = results[index];
+                                    return ListTile(
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 5),
+                                      leading: const CircleAvatar(child: Icon(Icons.location_on_rounded)),
+                                      title: Text(result.label, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                      subtitle: const Text('Ver pontos e linhas próximos'),
+                                      trailing: const Icon(Icons.chevron_right_rounded),
+                                      onTap: () {
+                                        final location = LatLng(result.latitude, result.longitude);
+                                        final stops = widget.gtfs.nearby(
+                                          result.latitude,
+                                          result.longitude,
+                                          radiusMeters: 1200,
+                                        );
+                                        Navigator.pop(sheetContext);
+                                        if (!mounted) return;
+                                        setState(() {
+                                          _addressLocation = location;
+                                          _addressLabel = result.label;
+                                          _nearbyCenter = location;
+                                          _nearby = stops;
+                                        });
+                                        _map.move(location, 16.5);
+                                      },
+                                    );
+                                  },
+                                ),
                 ),
               ]),
             ),
@@ -239,6 +357,16 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     ),
   );
 
+  Widget _addressMarker() => Container(
+    decoration: BoxDecoration(
+      color: const Color(0xFFE5252A),
+      shape: BoxShape.circle,
+      border: Border.all(color: Colors.white, width: 3),
+      boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
+    ),
+    child: const Icon(Icons.location_on_rounded, color: Colors.white, size: 22),
+  );
+
   Widget _locationMarker() => Stack(alignment: Alignment.center, children: [
     Container(width: 44, height: 44, decoration: const BoxDecoration(color: Color(0x380B82D4), shape: BoxShape.circle)),
     Container(width: 19, height: 19, decoration: BoxDecoration(color: const Color(0xFF0B82D4), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3), boxShadow: const [BoxShadow(blurRadius: 5, color: Colors.black38)])),
@@ -278,6 +406,12 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
         ]),
         actions: [
           IconButton.filledTonal(
+            onPressed: _loading ? null : _openAddressSearch,
+            tooltip: 'Buscar endereço',
+            icon: const Icon(Icons.location_searching_rounded),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
             onPressed: _loading ? null : _openRouteSearch,
             tooltip: 'Buscar linha',
             icon: const Icon(Icons.search_rounded),
@@ -306,6 +440,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
           children: [
             TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'br.com.lopeskuti.meuonibus'),
             MarkerLayer(markers: [
+              if (_addressLocation != null) Marker(point: _addressLocation!, width: 42, height: 42, child: _addressMarker()),
               if (_me != null) Marker(point: _me!, width: 46, height: 46, child: _locationMarker()),
               ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 34, height: 34, child: _stopMarker(stop))),
             ]),
@@ -323,10 +458,14 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                 padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                   Row(children: [
-                    Text('Pontos próximos', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                    Text(_addressLabel == null ? 'Pontos próximos' : 'Pontos perto do endereço', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
                     const Spacer(),
                     Text('${_nearby.length} encontrados', style: Theme.of(context).textTheme.bodySmall),
                   ]),
+                  if (_addressLabel != null) ...[
+                    const SizedBox(height: 3),
+                    Text(_addressLabel!, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+                  ],
                   const SizedBox(height: 6),
                   ...visibleStops.map((stop) => ListTile(
                     dense: true,
