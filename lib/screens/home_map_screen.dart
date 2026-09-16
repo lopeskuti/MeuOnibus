@@ -28,6 +28,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   String? _error;
   bool _loading = true;
   bool _hasCenteredOnLocation = false;
+  bool _userHasInteractedWithMap = false;
 
   static const _followZoom = 17.4;
 
@@ -62,14 +63,12 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
     if (!mounted) return;
     setState(() { _me = me; _nearby = stops; });
-    if (moveMap) {
+    // A câmera é posicionada somente uma vez, na abertura da tela.
+    // Depois disso, inclusive após qualquer gesto manual, somente o cursor muda.
+    if (moveMap && !_hasCenteredOnLocation && !_userHasInteractedWithMap) {
+      _hasCenteredOnLocation = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        // Aproxima na primeira localização e, nas atualizações seguintes,
-        // preserva o zoom que a pessoa escolheu no mapa.
-        final zoom = _hasCenteredOnLocation ? _map.camera.zoom : _followZoom;
-        _map.move(me, zoom);
-        _hasCenteredOnLocation = true;
+        if (mounted && !_userHasInteractedWithMap) _map.move(me, _followZoom);
       });
     }
   }
@@ -198,7 +197,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
         actions: [
           IconButton.filledTonal(
             onPressed: _bootstrap,
-            tooltip: 'Centralizar na minha localização',
+            tooltip: 'Atualizar localização',
             icon: const Icon(Icons.my_location_rounded),
           ),
           const SizedBox(width: 12),
@@ -207,7 +206,15 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
       body: Stack(children: [
         FlutterMap(
           mapController: _map,
-          options: MapOptions(initialCenter: initial, initialZoom: _followZoom, minZoom: 10, maxZoom: 19),
+          options: MapOptions(
+            initialCenter: initial,
+            initialZoom: _followZoom,
+            minZoom: 10,
+            maxZoom: 19,
+            onPositionChanged: (_, hasGesture) {
+              if (hasGesture) _userHasInteractedWithMap = true;
+            },
+          ),
           children: [
             TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'br.com.lopeskuti.meuonibus'),
             MarkerLayer(markers: [
