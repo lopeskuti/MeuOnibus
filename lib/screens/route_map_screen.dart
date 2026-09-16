@@ -47,6 +47,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     _me = widget.initialLocation;
     _startLocationTracking();
     _initRealtime();
+    if (widget.stop == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fitRoute());
+    }
   }
 
   Future<void> _startLocationTracking() async {
@@ -69,7 +72,19 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final me = LatLng(position.latitude, position.longitude);
     if (!mounted) return;
     setState(() => _me = me);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _map.move(me, 16));
+    if (widget.stop != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _map.move(me, 16));
+    }
+  }
+
+  void _fitRoute() {
+    final shape = widget.gtfs.shapeFor(widget.route);
+    if (!mounted || shape.length < 2) return;
+    _map.fitCamera(CameraFit.bounds(
+      bounds: LatLngBounds.fromPoints(shape),
+      padding: const EdgeInsets.fromLTRB(34, 112, 34, 180),
+      maxZoom: 16,
+    ));
   }
 
   Future<void> _initRealtime() async {
@@ -167,6 +182,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         ]),
         actions: [
           IconButton(onPressed: _me == null ? null : () => _map.move(_me!, 16), tooltip: 'Minha localização', icon: const Icon(Icons.my_location_rounded)),
+          IconButton(onPressed: _fitRoute, tooltip: 'Ver trajeto completo', icon: const Icon(Icons.route_rounded)),
           IconButton(onPressed: _loading ? null : _refresh, tooltip: 'Atualizar ônibus', icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.refresh_rounded)),
           const SizedBox(width: 6),
         ],
