@@ -43,7 +43,11 @@ def _terminal_id(name: str) -> str:
     return f'terminal-{normalised}'
 
 
-def build_terminals(stops: list[dict], source_rows: dict[str, dict[str, str]]) -> list[dict]:
+def build_terminals(
+    stops: list[dict],
+    source_rows: dict[str, dict[str, str]],
+    outbound_routes_by_stop: dict[str, set[str]],
+) -> list[dict]:
     grouped: dict[str, dict] = {}
     for stop in stops:
         metadata = _terminal_metadata(source_rows[stop['id']])
@@ -62,7 +66,14 @@ def build_terminals(stops: list[dict], source_rows: dict[str, dict[str, str]]) -
             'name': terminal['name'],
             'lat': round(sum(stop['lat'] for stop in terminal_stops) / len(terminal_stops), 6),
             'lon': round(sum(stop['lon'] for stop in terminal_stops) / len(terminal_stops), 6),
-            'platforms': [{'name': name, 'stopIds': sorted(ids)} for name, ids in sorted(terminal['platforms'].items())],
+            'platforms': [
+                {
+                    'name': name,
+                    'stopIds': sorted(ids),
+                    'outboundRouteIds': sorted({route_id for stop_id in ids for route_id in outbound_routes_by_stop.get(stop_id, set())}),
+                }
+                for name, ids in sorted(terminal['platforms'].items())
+            ],
         })
     return sorted(result, key=lambda terminal: terminal['name'])
 
@@ -108,7 +119,9 @@ def build_schedules(
     schedules = {}
     for variant_id, by_service in first_departures.items():
         departures = [time for times in by_service.values() for time in times]
-        if not departures:
+        if len(set(departures)) < 2:
+            # O GTFS da SPTrans pode trazer apenas uma viagem de referência,
+            # que não representa uma grade de horários confiável.
             continue
         days = set().union(*(service_days.get(service_id, set()) for service_id in by_service))
         gaps = []
@@ -226,6 +239,7 @@ def main(path: str) -> None:
 
         stop_routes = defaultdict(set)
         first_departure_by_trip = {}
+        first_stop_by_trip = {}
         for r in rows(z, 'stop_times.txt'):
             trip_id = r['trip_id']
             variant_id = variant_by_trip.get(trip_id)
@@ -236,6 +250,9 @@ def main(path: str) -> None:
                     sequence = int(r.get('stop_sequence') or 0)
                 except ValueError:
                     sequence = 0
+                current_stop = first_stop_by_trip.get(trip_id)
+                if current_stop is None or sequence < current_stop[0]:
+                    first_stop_by_trip[trip_id] = (sequence, r['stop_id'])
                 current = first_departure_by_trip.get(trip_id)
                 if seconds is not None and (current is None or sequence < current[0]):
                     first_departure_by_trip[trip_id] = (sequence, seconds)
@@ -247,6 +264,11 @@ def main(path: str) -> None:
             if variant_id and service_id:
                 departures_by_variant[variant_id][service_id].append(seconds)
         schedules = build_schedules(departures_by_variant, service_days)
+        outbound_routes_by_stop = defaultdict(set)
+        for trip_id, (_, stop_id) in first_stop_by_trip.items():
+            variant_id = variant_by_trip.get(trip_id)
+            if variant_id:
+                outbound_routes_by_stop[stop_id].add(variant_id)
 
         used_shapes = {v['shapeId'] for v in variants.values() if v.get('shapeId')}
         shapes = defaultdict(list)
@@ -266,7 +288,7 @@ def main(path: str) -> None:
             shape_id: simplify_shape(points, SHAPE_SIMPLIFY_METERS)
             for shape_id, points in shapes.items()
         }
-        terminals = build_terminals(stops, stop_source_rows)
+        terminals = build_terminals(stops, stop_source_rows, outbound_routes_by_stop)
 
     (OUT / 'stops.json').write_text(
         json.dumps(stops, ensure_ascii=False, separators=(',', ':')), encoding='utf-8'
