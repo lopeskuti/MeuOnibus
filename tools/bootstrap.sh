@@ -11,6 +11,7 @@ rm -f test/widget_test.dart
 
 python3 - <<'PY'
 from pathlib import Path
+import re
 p = Path('android/app/src/main/AndroidManifest.xml')
 s = p.read_text()
 marker = '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
