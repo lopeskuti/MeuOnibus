@@ -9,12 +9,14 @@ import '../services/address_search_service.dart';
 import '../services/gtfs_repository.dart';
 import '../services/location_service.dart';
 import '../services/olho_vivo_service.dart';
+import '../services/rail_repository.dart';
 import 'route_map_screen.dart';
 
 class HomeMapScreen extends StatefulWidget {
   final GtfsRepository gtfs;
+  final RailRepository rail;
   final OlhoVivoService api;
-  const HomeMapScreen({super.key, required this.gtfs, required this.api});
+  const HomeMapScreen({super.key, required this.gtfs, required this.rail, required this.api});
 
   @override
   State<HomeMapScreen> createState() => _HomeMapScreenState();
@@ -32,6 +34,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   String? _addressLabel;
   List<BusStop> _nearby = const [];
   List<BusTerminal> _nearbyTerminals = const [];
+  List<RailStation> _nearbyRail = const [];
   String? _error;
   bool _loading = true;
   bool _hasCenteredOnLocation = false;
@@ -49,6 +52,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       await widget.gtfs.load();
+      await widget.rail.load();
       final p = await _location.current();
       _applyLocation(p, moveMap: true);
       await _locationSubscription?.cancel();
@@ -82,6 +86,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     final me = LatLng(p.latitude, p.longitude);
     final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
     final terminals = widget.gtfs.terminalsNearby(p.latitude, p.longitude, radiusMeters: 1200);
+    final rail = widget.rail.nearby(p.latitude, p.longitude, radiusMeters: 1200);
     if (!mounted) return;
     setState(() {
       _me = me;
@@ -89,6 +94,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
         _nearbyCenter = me;
         _nearby = stops.where((stop) => !widget.gtfs.isTerminalStop(stop)).toList(growable: false);
         _nearbyTerminals = terminals;
+        _nearbyRail = rail;
       }
     });
     // A câmera é posicionada somente uma vez, na abertura da tela.
@@ -104,11 +110,13 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
   void _loadStopsAround(LatLng center) {
     final stops = widget.gtfs.nearby(center.latitude, center.longitude, radiusMeters: 1200);
     final terminals = widget.gtfs.terminalsNearby(center.latitude, center.longitude, radiusMeters: 1200);
+    final rail = widget.rail.nearby(center.latitude, center.longitude, radiusMeters: 1200);
     if (!mounted) return;
     setState(() {
       _nearbyCenter = center;
       _nearby = stops.where((stop) => !widget.gtfs.isTerminalStop(stop)).toList(growable: false);
       _nearbyTerminals = terminals;
+      _nearbyRail = rail;
       _addressLocation = null;
       _addressLabel = null;
     });
@@ -293,6 +301,11 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                                           result.longitude,
                                           radiusMeters: 1200,
                                         );
+                                        final rail = widget.rail.nearby(
+                                          result.latitude,
+                                          result.longitude,
+                                          radiusMeters: 1200,
+                                        );
                                         Navigator.pop(sheetContext);
                                         if (!mounted) return;
                                         setState(() {
@@ -301,6 +314,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                                           _nearbyCenter = location;
                                           _nearby = stops.where((stop) => !widget.gtfs.isTerminalStop(stop)).toList(growable: false);
                                           _nearbyTerminals = terminals;
+                                          _nearbyRail = rail;
                                         });
                                         _map.move(location, 16.5);
                                       },
@@ -434,6 +448,49 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     );
   }
 
+  Future<void> _openRailStation(RailStation station) async {
+    final lines = widget.rail.linesFor(station);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(station.name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            const Text('Metrô e trem • dados estáticos'),
+            const SizedBox(height: 14),
+            ...lines.map((line) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(backgroundColor: Color(line.color), child: const Icon(Icons.train_rounded, color: Colors.white)),
+              title: Text(line.name),
+              subtitle: Text(line.mode == 'metro' ? 'Metrô' : 'Trem metropolitano'),
+            )),
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('Previsão em tempo real ainda não é disponibilizada por uma fonte pública integrada.', style: TextStyle(fontSize: 12)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _railMarker(RailStation station) => GestureDetector(
+    onTap: () => _openRailStation(station),
+    child: Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF5A3D92),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2.5),
+        boxShadow: const [BoxShadow(blurRadius: 5, offset: Offset(0, 2), color: Colors.black26)],
+      ),
+      child: const Icon(Icons.train_rounded, color: Colors.white, size: 15),
+    ),
+  );
+
   Widget _terminalMarker(BusTerminal terminal) => GestureDetector(
     onTap: () => _openTerminal(terminal),
     child: Container(
@@ -552,6 +609,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
               if (_me != null) Marker(point: _me!, width: 46, height: 46, child: _locationMarker()),
               ..._nearbyTerminals.map((terminal) => Marker(point: LatLng(terminal.lat, terminal.lon), width: 42, height: 42, child: _terminalMarker(terminal))),
               ..._nearby.map((stop) => Marker(point: LatLng(stop.lat, stop.lon), width: 26, height: 26, child: _stopMarker(stop))),
+              ..._nearbyRail.map((station) => Marker(point: LatLng(station.lat, station.lon), width: 28, height: 28, child: _railMarker(station))),
             ]),
             RichAttributionWidget(attributions: const [TextSourceAttribution('OpenStreetMap contributors')]),
           ],

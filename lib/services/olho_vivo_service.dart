@@ -144,16 +144,18 @@ class OlhoVivoService {
     final stops = await stopsForLine(lineCode);
     if (stops.isEmpty) return null;
 
-    // O cadastro GTFS e o cadastro operacional da Olho Vivo nem sempre
-    // usam o mesmo ponto de coordenada. Nome e proximidade são combinados
-    // para manter a parada correta mesmo quando há deslocamento no cadastro.
+    // GTFS e Olho Vivo possuem cadastros independentes. A proximidade é o
+    // critério principal: nomes de vias podem se repetir em bairros distintos.
+    // A comparação de nome apenas desempata pontos próximos.
+    const maxDistanceMeters = 550.0;
     final wantedName = _normalize(stop.name);
     OlhoVivoStop? best;
     var bestScore = -double.infinity;
     for (final candidate in stops) {
       final meters = _distanceMeters(stop.lat, stop.lon, candidate.lat, candidate.lon);
+      if (meters > maxDistanceMeters) continue;
       final nameScore = _score(wantedName, _normalize(candidate.name));
-      final score = (nameScore * 250 - math.min(meters, 5000)).toDouble();
+      final score = -meters + math.min(nameScore * 20.0, 300.0);
       if (score > bestScore) {
         best = candidate;
         bestScore = score;
@@ -183,7 +185,9 @@ class OlhoVivoService {
 
   Future<List<ArrivalPrediction>> arrivals(int lineCode, String stopCode) async {
     if (int.tryParse(stopCode) == null) return const [];
-    final uri = Uri.parse('$_baseUrl/Previsao').replace(queryParameters: {
+    // A API não expõe previsão por meio de /Previsao genérico. Para uma
+    // linha e um ponto específicos, o endpoint oficial é Previsao/Linha.
+    final uri = Uri.parse('$_baseUrl/Previsao/Linha').replace(queryParameters: {
       'codigoParada': stopCode,
       'codigoLinha': '$lineCode',
     });
