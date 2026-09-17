@@ -93,8 +93,10 @@ def main() -> None:
     relations = [item for item in route_elements if item.get("type") == "relation"]
 
     line_points: dict[str, list[tuple[float, float]]] = {}
+    line_station_names: dict[str, set[str]] = {}
     for line_id, _, _, _, pattern in LINES:
         points: list[tuple[float, float]] = []
+        station_names: set[str] = set()
         for relation in relations:
             tags = relation.get("tags", {})
             identity = norm(" ".join(str(tags.get(key, "")) for key in ("name", "ref", "from", "to")))
@@ -110,13 +112,19 @@ def main() -> None:
                 if member.get("type") == "node" and member.get("ref") in nodes:
                     node = nodes[member["ref"]]
                     points.append((node["lat"], node["lon"]))
+                    if node.get("tags", {}).get("name"):
+                        station_names.add(norm(node["tags"]["name"]))
                 if member.get("type") == "way" and member.get("ref") in ways:
-                    for node_id in ways[member["ref"]].get("nodes", []):
+                    way = ways[member["ref"]]
+                    if way.get("tags", {}).get("name"):
+                        station_names.add(norm(way["tags"]["name"]))
+                    for node_id in way.get("nodes", []):
                         node = nodes.get(node_id)
                         if node:
                             points.append((node["lat"], node["lon"]))
         if points:
             line_points[line_id] = points
+            line_station_names[line_id] = station_names
 
     stations: dict[str, dict] = {}
     for item in station_data.get("elements", []):
@@ -128,10 +136,16 @@ def main() -> None:
         lon = item.get("lon") or item.get("center", {}).get("lon")
         if lat is None or lon is None:
             continue
+        station_name = norm(name)
         nearby_lines = [
-            line_id for line_id, points in line_points.items()
-            if distance_to_route_meters(lat, lon, points) <= 350
+            line_id for line_id, names in line_station_names.items()
+            if station_name in names
         ]
+        if not nearby_lines:
+            nearby_lines = [
+                line_id for line_id, points in line_points.items()
+                if distance_to_route_meters(lat, lon, points) <= 350
+            ]
         if not nearby_lines:
             continue
         key = norm(name)
