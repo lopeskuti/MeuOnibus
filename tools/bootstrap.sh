@@ -35,36 +35,23 @@ p = Path('android/app/src/main/kotlin/br/com/lopeskuti/meu_onibus/MainActivity.k
 if p.exists():
     p.write_text(p.read_text().replace('package br.com.lopeskuti.meu_onibus', 'package br.com.lopeskuti.meuonibus'))
 
+# Altera somente o dicionário-raiz. A substituição textual de </dict> também
+# mudava os dicionários internos de UIApplicationSceneManifest e fazia o iOS
+# abortar na abertura do app.
+import plistlib
 p = Path('ios/Runner/Info.plist')
-s = p.read_text()
-if 'NSLocationWhenInUseUsageDescription' not in s:
-    s = s.replace('</dict>', '\t<key>NSLocationWhenInUseUsageDescription</key>\n\t<string>Sua localização é usada para mostrar os pontos de ônibus próximos.</string>\n</dict>')
-p.write_text(s)
-
-p = Path('ios/Runner/Info.plist')
-s = p.read_text()
-for key in ('CFBundleDisplayName', 'CFBundleName'):
-    entry = f'\t<key>{key}</key>\n\t<string>Meu Ônibus SP</string>'
-    if f'<key>{key}</key>' in s:
-        import re
-        s = re.sub(
-            rf'\t<key>{key}</key>\s*\n\s*<string>.*?</string>',
-            entry,
-            s,
-            count=1,
-        )
-    else:
-        s = s.replace('</dict>', f'{entry}\n</dict>')
-p.write_text(s)
-
-# O app usa apenas TLS fornecido pelo sistema operacional (por exemplo, para
-# as APIs e tiles). Esta declaração elimina a pergunta repetida de compliance
-# de exportação ao enviar uma nova build ao App Store Connect.
-p = Path('ios/Runner/Info.plist')
-s = p.read_text()
-if 'ITSAppUsesNonExemptEncryption' not in s:
-    s = s.replace('</dict>', '\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n</dict>')
-p.write_text(s)
+with p.open('rb') as plist_file:
+    info = plistlib.load(plist_file)
+info.update({
+    'NSLocationWhenInUseUsageDescription': 'Sua localização é usada para mostrar os pontos de ônibus próximos.',
+    'CFBundleDisplayName': 'Meu Ônibus SP',
+    'CFBundleName': 'Meu Ônibus SP',
+    # O app usa apenas TLS fornecido pelo sistema operacional. Isto elimina a
+    # pergunta repetida de compliance de exportação no App Store Connect.
+    'ITSAppUsesNonExemptEncryption': False,
+})
+with p.open('wb') as plist_file:
+    plistlib.dump(info, plist_file, sort_keys=False)
 
 p = Path('ios/Runner.xcodeproj/project.pbxproj')
 s = p.read_text().replace('br.com.lopeskuti.meuOnibus', 'br.com.lopeskuti.meuonibus')
