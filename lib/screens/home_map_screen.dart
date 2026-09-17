@@ -301,6 +301,11 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                                           result.longitude,
                                           radiusMeters: 1200,
                                         );
+                                        final rail = widget.rail.nearby(
+                                          result.latitude,
+                                          result.longitude,
+                                          radiusMeters: 1200,
+                                        );
                                         Navigator.pop(sheetContext);
                                         if (!mounted) return;
                                         setState(() {
@@ -309,6 +314,7 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
                                           _nearbyCenter = location;
                                           _nearby = stops.where((stop) => !widget.gtfs.isTerminalStop(stop)).toList(growable: false);
                                           _nearbyTerminals = terminals;
+                                          _nearbyRail = rail;
                                         });
                                         _map.move(location, 16.5);
                                       },
