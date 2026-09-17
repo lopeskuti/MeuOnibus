@@ -544,6 +544,8 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     final initial = _me ?? const LatLng(-23.55052, -46.633308);
     final visibleTerminals = _nearbyTerminals.take(2).toList(growable: false);
     final visibleStops = _nearby.take(3 - visibleTerminals.length).toList(growable: false);
+    final nearbyRailLineIds = _nearbyRail.expand((station) => station.lineIds).toSet();
+    final nearbyRailLines = nearbyRailLineIds.map((lineId) => widget.rail.lineForId(lineId)).whereType<RailLine>().toList(growable: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -604,6 +606,16 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
           ),
           children: [
             TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'br.com.lopeskuti.meuonibus'),
+            if (nearbyRailLines.isNotEmpty)
+              PolylineLayer(
+                polylines: [
+                  for (final line in nearbyRailLines)
+                    for (final path in line.paths) ...[
+                      Polyline(points: path, strokeWidth: 6, color: const Color(0xFFFFFFFF)),
+                      Polyline(points: path, strokeWidth: 3.5, color: Color(line.color)),
+                    ],
+                ],
+              ),
             MarkerLayer(markers: [
               if (_addressLocation != null) Marker(point: _addressLocation!, width: 42, height: 42, child: _addressMarker()),
               if (_me != null) Marker(point: _me!, width: 46, height: 46, child: _locationMarker()),
