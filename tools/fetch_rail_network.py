@@ -44,12 +44,7 @@ def norm(value: str) -> str:
     return re.sub(r"[^A-Z0-9]+", " ", value).strip()
 
 
-def fetch() -> dict:
-    query = f"""[out:json][timeout:180];
-relation[route~"^(subway|train|monorail|light_rail)$"]{BBOX};
-out body;
->;
-out body;"""
+def query(query: str) -> dict:
     body = urllib.parse.urlencode({"data": query}).encode()
     headers = {"User-Agent": "MeuOnibus/1.0 (https://github.com/lopeskuti/MeuOnibus)"}
     last_error: Exception | None = None
@@ -64,46 +59,89 @@ out body;"""
     raise SystemExit(f"Não foi possível consultar OpenStreetMap/Overpass: {last_error}")
 
 
+def distance_to_route_meters(lat: float, lon: float, points: list[tuple[float, float]]) -> float:
+    # Aproximação suficiente para associar a estação à geometria da linha.
+    # O menor trecho entre estações metropolitanas é muito maior que o erro
+    # introduzido por esta projeção local.
+    lat_scale = 110_540.0
+    lon_scale = 102_300.0
+    return min(
+        ((lat - point_lat) * lat_scale) ** 2 + ((lon - point_lon) * lon_scale) ** 2
+        for point_lat, point_lon in points
+    ) ** 0.5
+
+
+def fetch_network() -> tuple[dict, dict]:
+    routes = query(f"""[out:json][timeout:180];
+relation[route~"^(subway|train|monorail|light_rail)$"]{BBOX};
+out body;
+>;
+out body;""")
+    stations = query(f"""[out:json][timeout:180];
+(
+  nwr["railway"~"^(station|halt)$"]["name"]{BBOX};
+  nwr["station"~"^(subway|train)$"]["name"]{BBOX};
+  nwr["public_transport"~"^(station|platform)$"]["name"]{BBOX};
+);
+out center tags;""")
+    return routes, stations
+
 def main() -> None:
-    elements = fetch().get("elements", [])
-    relations = [item for item in elements if item.get("type") == "relation"]
-    nodes = {item["id"]: item for item in elements if item.get("type") == "node" and item.get("tags", {}).get("name")}
+    route_data, station_data = fetch_network()
+    route_elements = route_data.get("elements", [])
+    nodes = {item["id"]: item for item in route_elements if item.get("type") == "node"}
+    ways = {item["id"]: item for item in route_elements if item.get("type") == "way"}
+    relations = [item for item in route_elements if item.get("type") == "relation"]
+
+    line_points: dict[str, list[tuple[float, float]]] = {}
+    for line_id, _, _, _, pattern in LINES:
+        points: list[tuple[float, float]] = []
+        for relation in relations:
+            if not re.search(pattern, norm(relation.get("tags", {}).get("name", ""))):
+                continue
+            for member in relation.get("members", []):
+                if member.get("type") == "node" and member.get("ref") in nodes:
+                    node = nodes[member["ref"]]
+                    points.append((node["lat"], node["lon"]))
+                if member.get("type") == "way" and member.get("ref") in ways:
+                    for node_id in ways[member["ref"]].get("nodes", []):
+                        node = nodes.get(node_id)
+                        if node:
+                            points.append((node["lat"], node["lon"]))
+        if points:
+            line_points[line_id] = points
 
     stations: dict[str, dict] = {}
-    line_output = []
-    for line_id, title, mode, color, pattern in LINES:
-        matching = [
-            relation for relation in relations
-            if re.search(pattern, norm(relation.get("tags", {}).get("name", "")))
+    for item in station_data.get("elements", []):
+        tags = item.get("tags", {})
+        name = (tags.get("name") or "").strip()
+        if not name:
+            continue
+        lat = item.get("lat") or item.get("center", {}).get("lat")
+        lon = item.get("lon") or item.get("center", {}).get("lon")
+        if lat is None or lon is None:
+            continue
+        nearby_lines = [
+            line_id for line_id, points in line_points.items()
+            if distance_to_route_meters(lat, lon, points) <= 650
         ]
-        member_nodes = []
-        for relation in matching:
-            member_nodes.extend(
-                member["ref"] for member in relation.get("members", [])
-                if member.get("type") == "node" and member.get("ref") in nodes
-            )
+        if not nearby_lines:
+            continue
+        key = norm(name)
+        station = stations.setdefault(key, {
+            "id": f"osm-{item['type']}-{item['id']}",
+            "name": name,
+            "lat": lat,
+            "lon": lon,
+            "lineIds": [],
+        })
+        station["lineIds"] = sorted(set(station["lineIds"]) | set(nearby_lines))
 
-        seen = set()
-        for node_id in member_nodes:
-            node = nodes[node_id]
-            tags = node.get("tags", {})
-            name = tags.get("name", "").strip()
-            if not name or node_id in seen:
-                continue
-            seen.add(node_id)
-            key = norm(name)
-            station = stations.setdefault(key, {
-                "id": f"osm-{node_id}",
-                "name": name,
-                "lat": node["lat"],
-                "lon": node["lon"],
-                "lineIds": [],
-            })
-            if line_id not in station["lineIds"]:
-                station["lineIds"].append(line_id)
-
-        line_output.append({"id": line_id, "name": title, "mode": mode, "color": color})
-
+    line_output = [
+        {"id": line_id, "name": title, "mode": mode, "color": color}
+        for line_id, title, mode, color, _ in LINES
+        if line_id in line_points
+    ]
     result = {
         "source": "OpenStreetMap contributors",
         "updatedAt": datetime.now(UTC).isoformat(),
@@ -117,5 +155,4 @@ def main() -> None:
     print(f"OK: {len(result['stations'])} estações ferroviárias geradas.")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":undefined
