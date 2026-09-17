@@ -190,10 +190,11 @@ class OlhoVivoService {
       '$_baseUrl/Previsao/Linha',
     ).replace(queryParameters: {'codigoLinha': '$lineCode'});
     final response = await _get(uri);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw OlhoVivoException(
         'Erro ao carregar previsão (${response.statusCode}).',
       );
+    }
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final serverTime = (data['hr'] ?? '').toString();
