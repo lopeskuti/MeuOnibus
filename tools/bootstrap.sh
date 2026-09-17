@@ -68,6 +68,27 @@ p.write_text(s)
 
 p = Path('ios/Runner.xcodeproj/project.pbxproj')
 s = p.read_text().replace('br.com.lopeskuti.meuOnibus', 'br.com.lopeskuti.meuonibus')
+# A Apple exige iOS 15 ou superior para novos envios. Mantemos o target do
+# projeto e dos pods alinhados para evitar um archive com configuração mista.
+s, replacements = re.subn(
+    r'IPHONEOS_DEPLOYMENT_TARGET = [^;]+;',
+    'IPHONEOS_DEPLOYMENT_TARGET = 15.0;',
+    s,
+)
+if replacements == 0:
+    raise SystemExit('Não encontrei o deployment target do iOS no projeto Xcode.')
+p.write_text(s)
+
+p = Path('ios/Podfile')
+s = p.read_text()
+s, replacements = re.subn(
+    r"(?m)^\s*#?\s*platform :ios, '[^']+'",
+    "platform :ios, '15.0'",
+    s,
+    count=1,
+)
+if replacements == 0:
+    raise SystemExit('Não encontrei a plataforma iOS no Podfile.')
 p.write_text(s)
 PY
 
