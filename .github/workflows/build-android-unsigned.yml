@@ -1,4 +1,4 @@
-name: Publish Android
+name: Build Android (unsigned)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
         default: ""
 
 concurrency:
-  group: publish-android-${{ github.ref }}
+  group: build-android-unsigned-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -21,13 +21,8 @@ permissions:
 
 jobs:
   android:
-    name: Signed Android AAB
+    name: Android APK and AAB (unsigned)
     runs-on: ubuntu-latest
-    env:
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,29 +39,19 @@ jobs:
           cache: true
       - name: Bootstrap platforms
         run: ./tools/bootstrap.sh
+      - name: Run tests
+        run: flutter test
       - name: Prepare current SPTrans GTFS
         run: bash tools/fetch_gtfs.sh
-      - name: Check required secrets
+      - name: Check SPTrans token
         shell: bash
         env:
           SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
         run: |
-          for secret_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD SPTRANS_TOKEN; do
-            if [ -z "${!secret_name:-}" ]; then
-              echo "::error::Missing GitHub secret: ${secret_name}"
-              exit 1
-            fi
-          done
-      - name: Install Android signing key
-        shell: bash
-        run: |
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > android/app/upload-keystore.jks
-          cat > android/key.properties <<EOF
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyPassword=$ANDROID_KEY_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          storeFile=upload-keystore.jks
-          EOF
+          if [ -z "${SPTRANS_TOKEN:-}" ]; then
+            echo "::error::Missing GitHub secret: SPTRANS_TOKEN"
+            exit 1
+          fi
       - name: Prepare version
         shell: bash
         run: |
@@ -74,23 +59,23 @@ jobs:
           if [ -z "$build_number" ]; then build_number="$GITHUB_RUN_NUMBER"; fi
           echo "BUILD_NAME=${{ inputs.build_name }}" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
-      - name: Build signed AAB
-        run: >-
-          flutter build appbundle --release
-          --build-name "$BUILD_NAME"
-          --build-number "$BUILD_NUMBER"
-          --dart-define=SPTRANS_TOKEN="${{ secrets.SPTRANS_TOKEN }}"
-      - name: Build signed APK
+      - name: Build APK without distribution signing key
         run: >-
           flutter build apk --release
           --build-name "$BUILD_NAME"
           --build-number "$BUILD_NUMBER"
           --dart-define=SPTRANS_TOKEN="${{ secrets.SPTRANS_TOKEN }}"
-      - name: Upload signed Android artifacts
+      - name: Build AAB without distribution signing key
+        run: >-
+          flutter build appbundle --release
+          --build-name "$BUILD_NAME"
+          --build-number "$BUILD_NUMBER"
+          --dart-define=SPTRANS_TOKEN="${{ secrets.SPTRANS_TOKEN }}"
+      - name: Upload unsigned Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: meu-onibus-android-${{ inputs.build_name }}-${{ env.BUILD_NUMBER }}
+          name: meu-onibus-android-unsigned-${{ inputs.build_name }}-${{ env.BUILD_NUMBER }}
           path: |
-            build/app/outputs/bundle/release/app-release.aab
             build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error

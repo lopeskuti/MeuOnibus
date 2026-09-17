@@ -57,8 +57,38 @@ for key in ('CFBundleDisplayName', 'CFBundleName'):
         s = s.replace('</dict>', f'{entry}\n</dict>')
 p.write_text(s)
 
+# O app usa apenas TLS fornecido pelo sistema operacional (por exemplo, para
+# as APIs e tiles). Esta declaração elimina a pergunta repetida de compliance
+# de exportação ao enviar uma nova build ao App Store Connect.
+p = Path('ios/Runner/Info.plist')
+s = p.read_text()
+if 'ITSAppUsesNonExemptEncryption' not in s:
+    s = s.replace('</dict>', '\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n</dict>')
+p.write_text(s)
+
 p = Path('ios/Runner.xcodeproj/project.pbxproj')
 s = p.read_text().replace('br.com.lopeskuti.meuOnibus', 'br.com.lopeskuti.meuonibus')
+# A Apple exige iOS 15 ou superior para novos envios. Mantemos o target do
+# projeto e dos pods alinhados para evitar um archive com configuração mista.
+s, replacements = re.subn(
+    r'IPHONEOS_DEPLOYMENT_TARGET = [^;]+;',
+    'IPHONEOS_DEPLOYMENT_TARGET = 15.0;',
+    s,
+)
+if replacements == 0:
+    raise SystemExit('Não encontrei o deployment target do iOS no projeto Xcode.')
+p.write_text(s)
+
+p = Path('ios/Podfile')
+s = p.read_text()
+s, replacements = re.subn(
+    r"(?m)^\s*#?\s*platform :ios, '[^']+'",
+    "platform :ios, '15.0'",
+    s,
+    count=1,
+)
+if replacements == 0:
+    raise SystemExit('Não encontrei a plataforma iOS no Podfile.')
 p.write_text(s)
 PY
 
