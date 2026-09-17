@@ -22,19 +22,19 @@ ENDPOINTS = (
 )
 
 LINES = (
-    ("L1", "Linha 1-Azul", "metro", "0xff0B4EA2", r"linha\\s*0?1(\\D|$)"),
-    ("L2", "Linha 2-Verde", "metro", "0xff008C5A", r"linha\\s*0?2(\\D|$)"),
-    ("L3", "Linha 3-Vermelha", "metro", "0xffE4373A", r"linha\\s*0?3(\\D|$)"),
-    ("L4", "Linha 4-Amarela", "metro", "0xffF5C518", r"linha\\s*0?4(\\D|$)"),
-    ("L5", "Linha 5-Lilás", "metro", "0xff8E4C9E", r"linha\\s*0?5(\\D|$)"),
-    ("L15", "Linha 15-Prata", "metro", "0xff7E858B", r"linha\\s*15(\\D|$)"),
-    ("L7", "Linha 7-Rubi", "trem", "0xffA6455D", r"linha\\s*0?7(\\D|$)"),
-    ("L8", "Linha 8-Diamante", "trem", "0xff9CA6AE", r"linha\\s*0?8(\\D|$)"),
-    ("L9", "Linha 9-Esmeralda", "trem", "0xff00A98F", r"linha\\s*0?9(\\D|$)"),
-    ("L10", "Linha 10-Turquesa", "trem", "0xff12A5B5", r"linha\\s*10(\\D|$)"),
-    ("L11", "Linha 11-Coral", "trem", "0xffF26649", r"linha\\s*11(\\D|$)"),
-    ("L12", "Linha 12-Safira", "trem", "0xff1B3F92", r"linha\\s*12(\\D|$)"),
-    ("L13", "Linha 13-Jade", "trem", "0xff3EA75B", r"linha\\s*13(\\D|$)"),
+    ("L1", "Linha 1-Azul", "metro", "0xff0B4EA2", r"linha\s*0?1(\D|$)"),
+    ("L2", "Linha 2-Verde", "metro", "0xff008C5A", r"linha\s*0?2(\D|$)"),
+    ("L3", "Linha 3-Vermelha", "metro", "0xffE4373A", r"linha\s*0?3(\D|$)"),
+    ("L4", "Linha 4-Amarela", "metro", "0xffF5C518", r"linha\s*0?4(\D|$)"),
+    ("L5", "Linha 5-Lilás", "metro", "0xff8E4C9E", r"linha\s*0?5(\D|$)"),
+    ("L15", "Linha 15-Prata", "metro", "0xff7E858B", r"linha\s*15(\D|$)"),
+    ("L7", "Linha 7-Rubi", "trem", "0xffA6455D", r"linha\s*0?7(\D|$)"),
+    ("L8", "Linha 8-Diamante", "trem", "0xff9CA6AE", r"linha\s*0?8(\D|$)"),
+    ("L9", "Linha 9-Esmeralda", "trem", "0xff00A98F", r"linha\s*0?9(\D|$)"),
+    ("L10", "Linha 10-Turquesa", "trem", "0xff12A5B5", r"linha\s*10(\D|$)"),
+    ("L11", "Linha 11-Coral", "trem", "0xffF26649", r"linha\s*11(\D|$)"),
+    ("L12", "Linha 12-Safira", "trem", "0xff1B3F92", r"linha\s*12(\D|$)"),
+    ("L13", "Linha 13-Jade", "trem", "0xff3EA75B", r"linha\s*13(\D|$)"),
 )
 
 
@@ -155,4 +155,5 @@ def main() -> None:
     print(f"OK: {len(result['stations'])} estações ferroviárias geradas.")
 
 
-if __name__ == "__main__":undefined
+if __name__ == "__main__":
+    main()
