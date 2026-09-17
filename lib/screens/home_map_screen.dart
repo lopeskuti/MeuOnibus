@@ -65,6 +65,19 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
     }
   }
 
+  Future<void> _recenterOnMyLocation() async {
+    try {
+      final position = await _location.current();
+      _applyLocation(position, moveMap: false);
+      if (!mounted) return;
+      final me = LatLng(position.latitude, position.longitude);
+      _map.move(me, _followZoom);
+      _loadStopsAround(me);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
   void _applyLocation(Position p, {required bool moveMap}) {
     final me = LatLng(p.latitude, p.longitude);
     final stops = widget.gtfs.nearby(p.latitude, p.longitude, radiusMeters: 1200);
@@ -510,8 +523,8 @@ class _HomeMapScreenState extends State<HomeMapScreen> {
           ),
           const SizedBox(width: 8),
           IconButton.filledTonal(
-            onPressed: _bootstrap,
-            tooltip: 'Atualizar localização',
+            onPressed: _loading ? null : _recenterOnMyLocation,
+            tooltip: 'Voltar para minha localização',
             icon: const Icon(Icons.my_location_rounded),
           ),
           const SizedBox(width: 12),

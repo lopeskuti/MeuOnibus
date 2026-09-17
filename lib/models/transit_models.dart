@@ -63,10 +63,12 @@ class StopLine {
 class BusTerminalPlatform {
   final String name;
   final List<String> stopIds;
-  const BusTerminalPlatform({required this.name, required this.stopIds});
+  final List<String> outboundRouteIds;
+  const BusTerminalPlatform({required this.name, required this.stopIds, this.outboundRouteIds = const []});
   factory BusTerminalPlatform.fromJson(Map<String, dynamic> json) => BusTerminalPlatform(
         name: (json['name'] ?? 'Plataforma').toString(),
         stopIds: (json['stopIds'] as List? ?? const []).map((id) => id.toString()).toList(growable: false),
+        outboundRouteIds: (json['outboundRouteIds'] as List? ?? const []).map((id) => id.toString()).toList(growable: false),
       );
 }
 
