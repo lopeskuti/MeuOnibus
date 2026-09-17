@@ -8,14 +8,24 @@ class RailLine {
   final String name;
   final String mode;
   final int color;
+  final List<List<LatLng>> paths;
 
-  const RailLine({required this.id, required this.name, required this.mode, required this.color});
+  const RailLine({required this.id, required this.name, required this.mode, required this.color, required this.paths});
 
   factory RailLine.fromJson(Map<String, dynamic> json) => RailLine(
         id: json['id'].toString(),
         name: json['name'].toString(),
         mode: json['mode'].toString(),
         color: int.parse((json['color'] ?? '0xff455a64').toString()),
+        paths: (json['paths'] as List? ?? const [])
+            .whereType<List>()
+            .map((path) => path
+                .whereType<List>()
+                .where((point) => point.length >= 2)
+                .map((point) => LatLng((point[0] as num).toDouble(), (point[1] as num).toDouble()))
+                .toList(growable: false))
+            .where((path) => path.length >= 2)
+            .toList(growable: false),
       );
 }
 
@@ -64,4 +74,6 @@ class RailRepository {
 
   List<RailLine> linesFor(RailStation station) =>
       station.lineIds.map((id) => _lines[id]).whereType<RailLine>().toList(growable: false);
+
+  RailLine? lineForId(String id) => _lines[id];
 }
