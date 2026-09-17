@@ -51,14 +51,16 @@ def query(query: str) -> dict:
     body = urllib.parse.urlencode({"data": query}).encode()
     headers = {"User-Agent": "MeuOnibus/1.0 (https://github.com/lopeskuti/MeuOnibus)"}
     last_error: Exception | None = None
-    for endpoint in ENDPOINTS:
-        try:
-            request = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
-            with urllib.request.urlopen(request, timeout=240) as response:
-                return json.load(response)
-        except (urllib.error.URLError, TimeoutError, ValueError) as error:
-            last_error = error
-            time.sleep(3)
+    for attempt in range(3):
+        for endpoint in ENDPOINTS:
+            try:
+                request = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
+                with urllib.request.urlopen(request, timeout=240) as response:
+                    return json.load(response)
+            except (urllib.error.URLError, TimeoutError, ValueError) as error:
+                last_error = error
+        if attempt < 2:
+            time.sleep(3 * (attempt + 1))
     raise SystemExit(f"Não foi possível consultar OpenStreetMap/Overpass: {last_error}")
 
 
@@ -72,6 +74,18 @@ def distance_to_route_meters(lat: float, lon: float, points: list[tuple[float, f
         ((lat - point_lat) * lat_scale) ** 2 + ((lon - point_lon) * lon_scale) ** 2
         for point_lat, point_lon in points
     ) ** 0.5
+
+
+def compact_path(points: list[tuple[float, float]]) -> list[list[float]]:
+    """Remove nós quase coincidentes, sem alterar o desenho da via."""
+    compacted: list[list[float]] = []
+    for lat, lon in points:
+        if compacted:
+            previous_lat, previous_lon = compacted[-1]
+            if distance_to_route_meters(lat, lon, [(previous_lat, previous_lon)]) < 8:
+                continue
+        compacted.append([round(lat, 6), round(lon, 6)])
+    return compacted
 
 
 def fetch_network() -> tuple[dict, dict]:
@@ -96,9 +110,11 @@ def main() -> None:
     relations = [item for item in route_elements if item.get("type") == "relation"]
 
     line_points: dict[str, list[tuple[float, float]]] = {}
+    line_paths: dict[str, list[list[list[float]]]] = {}
     line_station_names: dict[str, set[str]] = {}
     for line_id, _, _, _, pattern in LINES:
         points: list[tuple[float, float]] = []
+        paths: list[list[list[float]]] = []
         station_names: set[str] = set()
         for relation in relations:
             tags = relation.get("tags", {})
@@ -121,12 +137,19 @@ def main() -> None:
                     way = ways[member["ref"]]
                     if way.get("tags", {}).get("name"):
                         station_names.add(norm(way["tags"]["name"]))
+                    path: list[tuple[float, float]] = []
                     for node_id in way.get("nodes", []):
                         node = nodes.get(node_id)
                         if node:
-                            points.append((node["lat"], node["lon"]))
+                            point = (node["lat"], node["lon"])
+                            points.append(point)
+                            path.append(point)
+                    compacted = compact_path(path)
+                    if len(compacted) >= 2:
+                        paths.append(compacted)
         if points:
             line_points[line_id] = points
+            line_paths[line_id] = paths
             line_station_names[line_id] = station_names
 
     stations: dict[str, dict] = {}
@@ -162,7 +185,13 @@ def main() -> None:
         station["lineIds"] = sorted(set(station["lineIds"]) | set(nearby_lines))
 
     line_output = [
-        {"id": line_id, "name": title, "mode": mode, "color": color}
+        {
+            "id": line_id,
+            "name": title,
+            "mode": mode,
+            "color": color,
+            "paths": line_paths.get(line_id, []),
+        }
         for line_id, title, mode, color, _ in LINES
         if line_id in line_points
     ]
