@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Gera a base estática de estações de metrô e trem a partir do OpenStreetMap."""
+"""Gera a base estática de estações de metrô e trem a partir do OpenStreetMap.
+
+A associação privilegia a composição da rota; proximidade só é usada como contingência.
+"""
 
 from __future__ import annotations
 
