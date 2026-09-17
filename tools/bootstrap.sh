@@ -94,18 +94,6 @@ if p.exists():
         raise SystemExit('Não encontrei a plataforma iOS no Podfile.')
     p.write_text(s)
 
-# O framework Flutter também declara o mínimo suportado no archive final.
-p = Path('ios/Flutter/AppFrameworkInfo.plist')
-s = p.read_text()
-s, replacements = re.subn(
-    r'(<key>MinimumOSVersion</key>\s*<string>)[^<]+(</string>)',
-    r'\g<1>15.0\g<2>',
-    s,
-    count=1,
-)
-if replacements == 0:
-    raise SystemExit('Não encontrei MinimumOSVersion no framework Flutter.')
-p.write_text(s)
 PY
 
 flutter pub get
