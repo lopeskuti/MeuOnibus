@@ -81,7 +81,6 @@ out body;""")
 (
   nwr["railway"~"^(station|halt)$"]["name"]{BBOX};
   nwr["station"~"^(subway|train)$"]["name"]{BBOX};
-  nwr["public_transport"~"^(station|platform)$"]["name"]{BBOX};
 );
 out center tags;""")
     return routes, stations
@@ -99,7 +98,13 @@ def main() -> None:
         for relation in relations:
             tags = relation.get("tags", {})
             identity = norm(" ".join(str(tags.get(key, "")) for key in ("name", "ref", "from", "to")))
-            if not re.search(pattern, identity):
+            network = norm(str(tags.get("network", "")))
+            is_sp_rail = network in {
+                "METRO DE SAO PAULO",
+                "TREM METROPOLITANO DE SAO PAULO",
+                "COMPANHIA PAULISTA DE TRENS METROPOLITANOS",
+            }
+            if not is_sp_rail or not re.search(pattern, identity, re.I):
                 continue
             for member in relation.get("members", []):
                 if member.get("type") == "node" and member.get("ref") in nodes:
@@ -125,7 +130,7 @@ def main() -> None:
             continue
         nearby_lines = [
             line_id for line_id, points in line_points.items()
-            if distance_to_route_meters(lat, lon, points) <= 650
+            if distance_to_route_meters(lat, lon, points) <= 350
         ]
         if not nearby_lines:
             continue
