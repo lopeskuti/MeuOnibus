@@ -119,11 +119,17 @@ def build_schedules(
     schedules = {}
     for variant_id, by_service in first_departures.items():
         departures = [time for times in by_service.values() for time in times]
+        days = set().union(*(service_days.get(service_id, set()) for service_id in by_service))
         if len(set(departures)) < 2:
             # O GTFS da SPTrans pode trazer apenas uma viagem de referência,
             # que não representa uma grade de horários confiável.
+            schedules[variant_id] = {
+                'operatingDays': _days_label(days) or 'Consulte a operação',
+                'firstDeparture': None,
+                'lastDeparture': None,
+                'averageHeadwayMinutes': None,
+            }
             continue
-        days = set().union(*(service_days.get(service_id, set()) for service_id in by_service))
         gaps = []
         for times in by_service.values():
             ordered = sorted(set(times))
