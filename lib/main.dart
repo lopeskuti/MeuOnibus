@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'screens/home_map_screen.dart';
 import 'services/gtfs_repository.dart';
 import 'services/olho_vivo_service.dart';
+import 'services/rail_repository.dart';
 
 void main() {
   const token = String.fromEnvironment('SPTRANS_TOKEN');
@@ -63,7 +64,7 @@ class MeuOnibusApp extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         ),
       ),
-      home: HomeMapScreen(gtfs: GtfsRepository(), api: OlhoVivoService(token: token)),
+      home: HomeMapScreen(gtfs: GtfsRepository(), rail: RailRepository(), api: OlhoVivoService(token: token)),
     );
   }
 }
