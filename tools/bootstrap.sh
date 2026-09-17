@@ -57,6 +57,15 @@ for key in ('CFBundleDisplayName', 'CFBundleName'):
         s = s.replace('</dict>', f'{entry}\n</dict>')
 p.write_text(s)
 
+# O app usa apenas TLS fornecido pelo sistema operacional (por exemplo, para
+# as APIs e tiles). Esta declaração elimina a pergunta repetida de compliance
+# de exportação ao enviar uma nova build ao App Store Connect.
+p = Path('ios/Runner/Info.plist')
+s = p.read_text()
+if 'ITSAppUsesNonExemptEncryption' not in s:
+    s = s.replace('</dict>', '\t<key>ITSAppUsesNonExemptEncryption</key>\n\t<false/>\n</dict>')
+p.write_text(s)
+
 p = Path('ios/Runner.xcodeproj/project.pbxproj')
 s = p.read_text().replace('br.com.lopeskuti.meuOnibus', 'br.com.lopeskuti.meuonibus')
 p.write_text(s)
