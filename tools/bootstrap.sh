@@ -79,16 +79,32 @@ if replacements == 0:
     raise SystemExit('Não encontrei o deployment target do iOS no projeto Xcode.')
 p.write_text(s)
 
+# No runner Linux o flutter create não gera o Podfile. No macOS, quando ele
+# existir, deixamos os pods no mesmo mínimo do projeto sem bloquear o build.
 p = Path('ios/Podfile')
+if p.exists():
+    s = p.read_text()
+    s, replacements = re.subn(
+        r"(?m)^\s*#?\s*platform :ios, '[^']+'",
+        "platform :ios, '15.0'",
+        s,
+        count=1,
+    )
+    if replacements == 0:
+        raise SystemExit('Não encontrei a plataforma iOS no Podfile.')
+    p.write_text(s)
+
+# O framework Flutter também declara o mínimo suportado no archive final.
+p = Path('ios/Flutter/AppFrameworkInfo.plist')
 s = p.read_text()
 s, replacements = re.subn(
-    r"(?m)^\s*#?\s*platform :ios, '[^']+'",
-    "platform :ios, '15.0'",
+    r'(<key>MinimumOSVersion</key>\s*<string>)[^<]+(</string>)',
+    r'\g<1>15.0\g<2>',
     s,
     count=1,
 )
 if replacements == 0:
-    raise SystemExit('Não encontrei a plataforma iOS no Podfile.')
+    raise SystemExit('Não encontrei MinimumOSVersion no framework Flutter.')
 p.write_text(s)
 PY
 
