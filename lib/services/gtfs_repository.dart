@@ -54,8 +54,9 @@ class GtfsRepository {
 
   List<BusRoute> routesForPlatform(BusTerminalPlatform platform) {
     final routes = <String, BusRoute>{};
-    for (final stopId in platform.stopIds) {
-      for (final route in routesForStop(stopId)) { routes[route.id] = route; }
+    for (final routeId in platform.outboundRouteIds) {
+      final route = _routes[routeId];
+      if (route != null) routes[route.id] = route;
     }
     final result = routes.values.toList()..sort((a, b) => a.shortName.compareTo(b.shortName));
     return result;
@@ -63,7 +64,7 @@ class GtfsRepository {
 
   BusStop? stopForRoute(BusTerminalPlatform platform, BusRoute route) {
     for (final stopId in platform.stopIds) {
-      if ((_stopRoutes[stopId] ?? const []).contains(route.id)) {
+      if (platform.outboundRouteIds.contains(route.id) && (_stopRoutes[stopId] ?? const []).contains(route.id)) {
         for (final stop in _stops) { if (stop.id == stopId) return stop; }
       }
     }
