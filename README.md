@@ -7,7 +7,7 @@ App Flutter para iOS e Android que mostra pontos de ônibus próximos, linhas de
 - **GTFS oficial da SPTrans:** pontos, linhas e `shapes` dos trajetos.
 - **API Olho Vivo v2.1:** resolução das linhas e posições dos veículos em tempo real.
 - **OpenStreetMap + flutter_map:** mapa base.
-- **GitHub Actions:** build automático em `develop` e `master`; publish Android e iOS separados e manuais.
+- **GitHub Actions:** publicação Android e iOS manual, com a versão informada ao iniciar o workflow.
 
 O identificador do app é **`br.com.lopeskuti.meuonibus`** no Android e no iOS.
 
@@ -26,14 +26,8 @@ Para executar localmente: `flutter run --dart-define=SPTRANS_TOKEN=SUA_CHAVE`.
 
 ## GitHub Actions
 
-### Build automático — `.github/workflows/build.yml`
-Executa em todo push para `develop` e `master`. Faz análise e gera AAB Android de validação e build iOS release sem assinatura.
-
-### Publish Android — `.github/workflows/publish-android.yml`
-Somente manual em **Actions > Publish Android > Run workflow**. Gera AAB release assinado como artifact para upload manual no Google Play Console.
-
-### Publish iOS — `.github/workflows/publish-ios.yml`
-Somente manual em **Actions > Publish iOS > Run workflow**. Gera IPA assinado como artifact e, com `upload=true`, envia automaticamente ao App Store Connect/TestFlight.
+### Publicação manual — `.github/workflows/build.yml`
+Em **Actions > Publish release > Run workflow**, informe a versão no formato `X.Y.Z` (por exemplo, `1.0.9`) e confirme a execução. O workflow valida o app, gera os artefatos Android e iOS assinados e envia o IPA ao TestFlight. O número de build é definido automaticamente pelo número da execução no GitHub.
 
 ## GitHub Secrets
 

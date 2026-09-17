@@ -1,8 +1,13 @@
-name: Release
+name: Publish release
 
 on:
-  push:
-    branches: [master]
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: "Versão publicada (exemplo: 1.0.9)"
+        required: true
+        default: "1.0.9"
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -110,9 +115,11 @@ jobs:
           EOF
       - name: Prepare version
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.build_name }}
         run: |
-          build_name="$(sed -n 's/^version:[[:space:]]*\\([^+[:space:]]*\\).*/\\1/p' pubspec.yaml | head -n 1)"
-          [ -n "$build_name" ] || { echo "::error::Unable to read app version from pubspec.yaml."; exit 1; }
+          build_name="$RELEASE_VERSION"
+          [[ "$build_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::A versão deve seguir o formato X.Y.Z, por exemplo 1.0.9."; exit 1; }
           echo "BUILD_NAME=$build_name" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
       - name: Build signed AAB
@@ -213,9 +220,11 @@ jobs:
           done
       - name: Prepare version
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.build_name }}
         run: |
-          build_name="$(sed -n 's/^version:[[:space:]]*\\([^+[:space:]]*\\).*/\\1/p' pubspec.yaml | head -n 1)"
-          [ -n "$build_name" ] || { echo "::error::Unable to read app version from pubspec.yaml."; exit 1; }
+          build_name="$RELEASE_VERSION"
+          [[ "$build_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::A versão deve seguir o formato X.Y.Z, por exemplo 1.0.9."; exit 1; }
           echo "BUILD_NAME=$build_name" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
       - name: Install signing certificate
@@ -317,4 +326,3 @@ jobs:
         shell: bash
         run: |
           if [ -n "${KEYCHAIN_PATH:-}" ]; then security delete-keychain "$KEYCHAIN_PATH" || true; fi
-
