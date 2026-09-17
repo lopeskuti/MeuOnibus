@@ -44,6 +44,7 @@ with p.open('rb') as plist_file:
     info = plistlib.load(plist_file)
 info.update({
     'NSLocationWhenInUseUsageDescription': 'Sua localização é usada para mostrar os pontos de ônibus próximos.',
+    'NSLocationAlwaysAndWhenInUseUsageDescription': 'Sua localização é usada para mostrar pontos de ônibus próximos e atualizar o mapa enquanto você usa o app.',
     'CFBundleDisplayName': 'Meu Ônibus SP',
     'CFBundleName': 'Meu Ônibus SP',
     # O app usa apenas TLS fornecido pelo sistema operacional. Isto elimina a
