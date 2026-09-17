@@ -97,7 +97,9 @@ def main() -> None:
     for line_id, _, _, _, pattern in LINES:
         points: list[tuple[float, float]] = []
         for relation in relations:
-            if not re.search(pattern, norm(relation.get("tags", {}).get("name", ""))):
+            tags = relation.get("tags", {})
+            identity = norm(" ".join(str(tags.get(key, "")) for key in ("name", "ref", "from", "to")))
+            if not re.search(pattern, identity):
                 continue
             for member in relation.get("members", []):
                 if member.get("type") == "node" and member.get("ref") in nodes:
