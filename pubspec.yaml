@@ -24,6 +24,7 @@ flutter:
     - assets/gtfs/shapes.json
     - assets/gtfs/terminals.json
     - assets/gtfs/schedules.json
+    - assets/rail/rail_network.json
 
 dev_dependencies:
   flutter_test:
