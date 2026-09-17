@@ -1,0 +1,79 @@
+name: Build Android (unsigned)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: "App version (example: 1.0.0)"
+        required: true
+        default: "1.0.0"
+      build_number:
+        description: "Build number. Leave empty to use GitHub run number."
+        required: false
+        default: ""
+
+concurrency:
+  group: build-android-unsigned-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK and AAB (unsigned)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.1"
+          channel: stable
+          cache: true
+      - name: Bootstrap platforms
+        run: ./tools/bootstrap.sh
+      - name: Prepare current SPTrans GTFS
+        run: bash tools/fetch_gtfs.sh
+      - name: Check SPTrans token
+        shell: bash
+        env:
+          SPTRANS_TOKEN: ${{ secrets.SPTRANS_TOKEN }}
+        run: |
+          if [ -z "${SPTRANS_TOKEN:-}" ]; then
+            echo "::error::Missing GitHub secret: SPTRANS_TOKEN"
+            exit 1
+          fi
+      - name: Prepare version
+        shell: bash
+        run: |
+          build_number="${{ inputs.build_number }}"
+          if [ -z "$build_number" ]; then build_number="$GITHUB_RUN_NUMBER"; fi
+          echo "BUILD_NAME=${{ inputs.build_name }}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
+      - name: Build APK without distribution signing key
+        run: >-
+          flutter build apk --release
+          --build-name "$BUILD_NAME"
+          --build-number "$BUILD_NUMBER"
+          --dart-define=SPTRANS_TOKEN="${{ secrets.SPTRANS_TOKEN }}"
+      - name: Build AAB without distribution signing key
+        run: >-
+          flutter build appbundle --release
+          --build-name "$BUILD_NAME"
+          --build-number "$BUILD_NUMBER"
+          --dart-define=SPTRANS_TOKEN="${{ secrets.SPTRANS_TOKEN }}"
+      - name: Upload unsigned Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: meu-onibus-android-unsigned-${{ inputs.build_name }}-${{ env.BUILD_NUMBER }}
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
