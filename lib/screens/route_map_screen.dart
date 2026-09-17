@@ -37,7 +37,6 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   List<ArrivalPrediction> _arrivals = const [];
   Timer? _timer;
   int? _lineCode;
-  int? _arrivalStopCode;
   String? _arrivalError;
   LatLng? _me;
   String? _error;
@@ -93,17 +92,6 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     try {
       _lineCode = widget.route.sptransCode ?? await widget.api.resolveLineCode(widget.route);
       if (_lineCode == null) throw OlhoVivoException('Não encontrei esta linha na Olho Vivo.');
-      final stop = widget.stop;
-      if (stop != null) {
-        try {
-          _arrivalStopCode = await widget.api.resolveStopCode(_lineCode!, stop);
-          if (_arrivalStopCode == null) {
-            _arrivalError = 'Não encontrei o código operacional deste ponto na SPTrans.';
-          }
-        } catch (e) {
-          _arrivalError = 'Não foi possível localizar este ponto na SPTrans: $e';
-        }
-      }
       await _refresh();
       _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
     } catch (e) {
@@ -119,10 +107,10 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       final vehicles = await widget.api.vehicles(code);
       List<ArrivalPrediction> arrivals = const [];
       var arrivalError = _arrivalError;
-      final arrivalStopCode = _arrivalStopCode;
-      if (widget.stop != null && arrivalStopCode != null) {
+      final stop = widget.stop;
+      if (stop != null) {
         try {
-          arrivals = await widget.api.arrivals(code, '$arrivalStopCode');
+          arrivals = await widget.api.arrivals(code, stop);
           arrivalError = null;
         } catch (e) {
           arrivalError = 'Não foi possível carregar a previsão: $e';
