@@ -186,6 +186,12 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     ],
   );
 
+  String _predictedIntervalLabel() {
+    if (_arrivals.length < 2) return '—';
+    final interval = _arrivals[1].minutes - _arrivals[0].minutes;
+    return interval <= 1 ? 'Chegando' : '$interval min';
+  }
+
   Widget _selectedStopMarker() => Container(
     decoration: BoxDecoration(
       color: const Color(0xFF0B8F55),
@@ -295,16 +301,21 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                     Text('${_vehicles.length} ônibus em circulação • atualização a cada 15 s', style: Theme.of(context).textTheme.bodySmall),
                     const Padding(padding: EdgeInsets.only(top: 8), child: Divider(height: 1)),
                     const SizedBox(height: 8),
-                    const Text('Horários programados', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const Text('Operação programada', style: TextStyle(fontWeight: FontWeight.w700)),
                     Text(
-                      schedule?.operatingDays ?? 'Indisponível na base atual da SPTrans',
+                      schedule?.operatingDays ?? 'Indisponível na base GTFS atual',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 6),
                     Row(children: [
                       Expanded(child: _scheduleItem('Primeiro', schedule?.firstDeparture ?? '—')),
                       Expanded(child: _scheduleItem('Último', schedule?.lastDeparture ?? '—')),
-                      Expanded(child: _scheduleItem('Espera média', schedule?.averageHeadwayMinutes == null ? '—' : '${schedule!.averageHeadwayMinutes} min')),
+                      Expanded(child: _scheduleItem(
+                        'Intervalo estimado',
+                        _arrivals.length >= 2
+                            ? _predictedIntervalLabel()
+                            : (schedule?.averageHeadwayMinutes == null ? '—' : '${schedule!.averageHeadwayMinutes} min'),
+                      )),
                     ]),
                   ]),
                 ),
