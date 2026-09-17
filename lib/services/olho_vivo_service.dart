@@ -153,7 +153,7 @@ class OlhoVivoService {
     for (final candidate in stops) {
       final meters = _distanceMeters(stop.lat, stop.lon, candidate.lat, candidate.lon);
       final nameScore = _score(wantedName, _normalize(candidate.name));
-      final score = nameScore * 250 - math.min(meters, 5000);
+      final score = (nameScore * 250 - math.min(meters, 5000)).toDouble();
       if (score > bestScore) {
         best = candidate;
         bestScore = score;
