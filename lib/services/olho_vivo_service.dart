@@ -142,13 +142,24 @@ class OlhoVivoService {
 
   Future<int?> resolveStopCode(int lineCode, BusStop stop) async {
     final stops = await stopsForLine(lineCode);
-    OlhoVivoStop? closest;
-    var closestMeters = double.infinity;
+    if (stops.isEmpty) return null;
+
+    // O cadastro GTFS e o cadastro operacional da Olho Vivo nem sempre
+    // usam o mesmo ponto de coordenada. Nome e proximidade são combinados
+    // para manter a parada correta mesmo quando há deslocamento no cadastro.
+    final wantedName = _normalize(stop.name);
+    OlhoVivoStop? best;
+    var bestScore = -double.infinity;
     for (final candidate in stops) {
       final meters = _distanceMeters(stop.lat, stop.lon, candidate.lat, candidate.lon);
-      if (meters < closestMeters) { closest = candidate; closestMeters = meters; }
+      final nameScore = _score(wantedName, _normalize(candidate.name));
+      final score = nameScore * 250 - math.min(meters, 5000);
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
     }
-    return closestMeters <= 250 ? closest?.code : null;
+    return best?.code;
   }
 
   double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
