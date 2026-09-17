@@ -183,50 +183,67 @@ class OlhoVivoService {
     return ((data['vs'] ?? const []) as List).map((e) => VehiclePosition.fromJson(Map<String, dynamic>.from(e))).toList(growable: false);
   }
 
-  Future<List<ArrivalPrediction>> arrivals(int lineCode, String stopCode) async {
-    if (int.tryParse(stopCode) == null) return const [];
-    // A API não expõe previsão por meio de /Previsao genérico. Para uma
-    // linha e um ponto específicos, o endpoint oficial é Previsao/Linha.
-    final uri = Uri.parse('$_baseUrl/Previsao/Linha').replace(queryParameters: {
-      'codigoParada': stopCode,
-      'codigoLinha': '$lineCode',
-    });
+  Future<List<ArrivalPrediction>> arrivals(int lineCode, BusStop stop) async {
+    // Previsao/Linha recebe somente a linha e devolve ps: as previsões
+    // agrupadas por ponto. O endpoint não aceita codigoParada nesse formato.
+    final uri = Uri.parse(
+      '$_baseUrl/Previsao/Linha',
+    ).replace(queryParameters: {'codigoLinha': '$lineCode'});
     final response = await _get(uri);
-    if (response.statusCode != 200) throw OlhoVivoException('Erro ao carregar previsão (${response.statusCode}).');
+    if (response.statusCode != 200)
+      throw OlhoVivoException(
+        'Erro ao carregar previsão (${response.statusCode}).',
+      );
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final serverTime = (data['hr'] ?? '').toString();
-    final point = data['p'];
-    if (point is! Map) return const [];
-    final lines = point['l'];
-    if (lines is! List) return const [];
+    final points = data['ps'];
+    if (points is! List) return const [];
+
+    Map<String, dynamic>? selectedPoint;
+    var selectedScore = -double.infinity;
+    final wantedName = _normalize(stop.name);
+    for (final rawPoint in points) {
+      if (rawPoint is! Map) continue;
+      final point = Map<String, dynamic>.from(rawPoint);
+      final lat = (point['py'] as num?)?.toDouble();
+      final lon = (point['px'] as num?)?.toDouble();
+      if (lat == null || lon == null) continue;
+      final meters = _distanceMeters(stop.lat, stop.lon, lat, lon);
+      if (meters > 700) continue;
+      final nameScore = _score(
+        wantedName,
+        _normalize((point['np'] ?? '').toString()),
+      );
+      final score = -meters + math.min(nameScore * 20.0, 300.0);
+      if (score > selectedScore) {
+        selectedPoint = point;
+        selectedScore = score;
+      }
+    }
+    if (selectedPoint == null) return const [];
 
     final result = <ArrivalPrediction>[];
-    for (final rawLine in lines) {
-      if (rawLine is! Map) continue;
-      final line = Map<String, dynamic>.from(rawLine);
-      final code = (line['cl'] as num?)?.toInt();
-      if (code != null && code != lineCode) continue;
-      final vehicles = line['vs'];
-      if (vehicles is! List) continue;
-      for (final rawVehicle in vehicles) {
-        if (rawVehicle is! Map) continue;
-        final vehicle = Map<String, dynamic>.from(rawVehicle);
-        final expectedAt = (vehicle['t'] ?? '').toString();
-        final minutes = _minutesUntil(serverTime, expectedAt);
-        if (minutes == null) continue;
-        result.add(ArrivalPrediction(
+    final vehicles = selectedPoint['vs'];
+    if (vehicles is! List) return const [];
+    for (final rawVehicle in vehicles) {
+      if (rawVehicle is! Map) continue;
+      final vehicle = Map<String, dynamic>.from(rawVehicle);
+      final expectedAt = (vehicle['t'] ?? '').toString();
+      final minutes = _minutesUntil(serverTime, expectedAt);
+      if (minutes == null) continue;
+      result.add(
+        ArrivalPrediction(
           prefix: (vehicle['p'] ?? '').toString(),
           minutes: minutes,
           expectedAt: expectedAt,
           accessible: vehicle['a'] == true,
-        ));
-      }
+        ),
+      );
     }
     result.sort((a, b) => a.minutes.compareTo(b.minutes));
     return result;
   }
-
   int? _minutesUntil(String current, String arrival) {
     int? parseMinutes(String value) {
       final parts = value.split(':');
