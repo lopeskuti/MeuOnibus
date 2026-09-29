@@ -86,8 +86,9 @@ class OlhoVivoService {
 
   Future<void> _ensureAuthenticated() async {
     if (_authenticated && _sessionCookie != null) return;
-    if (token.isEmpty)
+    if (token.isEmpty) {
       throw OlhoVivoException('Configure SPTRANS_TOKEN com --dart-define.');
+    }
 
     final uri = Uri.parse(
       '$_baseUrl/Login/Autenticar',
@@ -133,8 +134,9 @@ class OlhoVivoService {
       '$_baseUrl/Linha/Buscar',
     ).replace(queryParameters: {'termosBusca': term});
     final response = await _get(uri);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw OlhoVivoException('Erro ao buscar linha (${response.statusCode}).');
+    }
     return (jsonDecode(response.body) as List)
         .map((e) => OlhoVivoLine.fromJson(Map<String, dynamic>.from(e)))
         .toList(growable: false);
@@ -163,8 +165,9 @@ class OlhoVivoService {
 
   int _score(String a, String b) {
     if (a.isEmpty || b.isEmpty) return 0;
-    if (a.contains(b) || b.contains(a))
+    if (a.contains(b) || b.contains(a)) {
       return 1000 + math.min(a.length, b.length);
+    }
     return a.split(' ').toSet().intersection(b.split(' ').toSet()).length * 10;
   }
 
@@ -252,10 +255,11 @@ class OlhoVivoService {
       '$_baseUrl/Posicao/Linha',
     ).replace(queryParameters: {'codigoLinha': '$lineCode'});
     final response = await _get(uri);
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw OlhoVivoException(
         'Erro ao carregar veículos (${response.statusCode}).',
       );
+    }
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return ((data['vs'] ?? const []) as List)
         .map((e) => VehiclePosition.fromJson(Map<String, dynamic>.from(e)))
@@ -281,8 +285,9 @@ class OlhoVivoService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final serverTime = (data['hr'] ?? '').toString();
     final point = data['p'];
-    if (point is! Map || point['cp'] != stopCode || point['l'] is! List)
+    if (point is! Map || point['cp'] != stopCode || point['l'] is! List) {
       return const [];
+    }
     final line = (point['l'] as List)
         .whereType<Map>()
         .where((line) => line['cl'] == lineCode)

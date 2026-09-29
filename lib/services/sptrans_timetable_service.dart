@@ -23,8 +23,9 @@ class SptransTimetableService {
           body: '{}',
         )
         .timeout(const Duration(seconds: 20));
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw Exception('Quadro horário indisponível (${response.statusCode}).');
+    }
     final lines = jsonDecode(response.body) as List;
     return {
       for (final raw in lines)
@@ -47,16 +48,18 @@ class SptransTimetableService {
                 body: jsonEncode({'codPlanejamento': code}),
               )
               .timeout(const Duration(seconds: 20));
-          if (response.statusCode != 200)
+          if (response.statusCode != 200) {
             throw Exception(
               'Quadro horário indisponível (${response.statusCode}).',
             );
+          }
           final data = Map<String, dynamic>.from(
             jsonDecode(response.body) as Map,
           );
           if ((data['codigo'] ?? '').toString().toUpperCase() !=
-              route.shortName.toUpperCase())
+              route.shortName.toUpperCase()) {
             return null;
+          }
           return LineTimetable.fromJson(data);
         } catch (_) {
           // Retry transient network failures when the line is opened again.
@@ -99,8 +102,9 @@ class LineTimetable {
     for (final group in raw) {
       if (group is! Map ||
           group['tipoDia'] is! num ||
-          group['horariosProgramados'] is! List)
+          group['horariosProgramados'] is! List) {
         continue;
+      }
       final day = (group['tipoDia'] as num).toInt();
       if (day < 0 || day > 2) continue;
       for (final departure in group['horariosProgramados'] as List) {
@@ -130,8 +134,7 @@ class LineTimetable {
   }
 
   static String formatTime(int minutes) =>
-      '${(minutes ~/ 60) % 24}'.padLeft(2, '0') +
-      ':${(minutes % 60).toString().padLeft(2, '0')}';
+      '${((minutes ~/ 60) % 24).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
 
   Map<int, List<int>> forDirection(BusRoute route) {
     final target = _normalize(route.longName);

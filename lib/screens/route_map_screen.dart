@@ -118,8 +118,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       _lineCode =
           widget.route.sptransCode ??
           await widget.api.resolveLineCode(widget.route);
-      if (_lineCode == null)
+      if (_lineCode == null) {
         throw OlhoVivoException('Não encontrei esta linha na Olho Vivo.');
+      }
       await _refresh();
       _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
     } catch (e) {
