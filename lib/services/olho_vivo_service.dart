@@ -20,17 +20,24 @@ class OlhoVivoLine {
   final String primaryTerminal;
   final String secondaryTerminal;
 
-  const OlhoVivoLine({required this.code, required this.number, required this.direction, required this.primaryTerminal, required this.secondaryTerminal});
+  const OlhoVivoLine({
+    required this.code,
+    required this.number,
+    required this.direction,
+    required this.primaryTerminal,
+    required this.secondaryTerminal,
+  });
 
-  String get destination => direction == 1 ? secondaryTerminal : primaryTerminal;
+  String get destination =>
+      direction == 1 ? primaryTerminal : secondaryTerminal;
 
   factory OlhoVivoLine.fromJson(Map<String, dynamic> j) => OlhoVivoLine(
-        code: (j['cl'] as num).toInt(),
-        number: '${j['lt']}-${j['tl']}',
-        direction: (j['sl'] as num).toInt(),
-        primaryTerminal: (j['tp'] ?? '').toString(),
-        secondaryTerminal: (j['ts'] ?? '').toString(),
-      );
+    code: (j['cl'] as num).toInt(),
+    number: '${j['lt']}-${j['tl']}',
+    direction: (j['sl'] as num).toInt(),
+    primaryTerminal: (j['tp'] ?? '').toString(),
+    secondaryTerminal: (j['ts'] ?? '').toString(),
+  );
 }
 
 class OlhoVivoStop {
@@ -38,13 +45,18 @@ class OlhoVivoStop {
   final String name;
   final double lat;
   final double lon;
-  const OlhoVivoStop({required this.code, required this.name, required this.lat, required this.lon});
+  const OlhoVivoStop({
+    required this.code,
+    required this.name,
+    required this.lat,
+    required this.lon,
+  });
   factory OlhoVivoStop.fromJson(Map<String, dynamic> json) => OlhoVivoStop(
-        code: (json['cp'] as num).toInt(),
-        name: (json['np'] ?? '').toString(),
-        lat: (json['py'] as num).toDouble(),
-        lon: (json['px'] as num).toDouble(),
-      );
+    code: (json['cp'] as num).toInt(),
+    name: (json['np'] ?? '').toString(),
+    lat: (json['py'] as num).toDouble(),
+    lon: (json['px'] as num).toDouble(),
+  );
 }
 
 class ArrivalPrediction {
@@ -53,7 +65,12 @@ class ArrivalPrediction {
   final String expectedAt;
   final bool accessible;
 
-  const ArrivalPrediction({required this.prefix, required this.minutes, required this.expectedAt, required this.accessible});
+  const ArrivalPrediction({
+    required this.prefix,
+    required this.minutes,
+    required this.expectedAt,
+    required this.accessible,
+  });
 }
 
 class OlhoVivoService {
@@ -62,28 +79,38 @@ class OlhoVivoService {
   final http.Client _client;
   bool _authenticated = false;
   String? _sessionCookie;
+  final Map<int, Future<List<OlhoVivoStop>>> _lineStops = {};
 
-  OlhoVivoService({required this.token, http.Client? client}) : _client = client ?? http.Client();
+  OlhoVivoService({required this.token, http.Client? client})
+    : _client = client ?? http.Client();
 
   Future<void> _ensureAuthenticated() async {
     if (_authenticated && _sessionCookie != null) return;
-    if (token.isEmpty) throw OlhoVivoException('Configure SPTRANS_TOKEN com --dart-define.');
+    if (token.isEmpty)
+      throw OlhoVivoException('Configure SPTRANS_TOKEN com --dart-define.');
 
-    final uri = Uri.parse('$_baseUrl/Login/Autenticar').replace(queryParameters: {'token': token});
+    final uri = Uri.parse(
+      '$_baseUrl/Login/Autenticar',
+    ).replace(queryParameters: {'token': token});
     final request = http.Request('POST', uri)
       ..headers['Content-Length'] = '0'
       ..body = '';
     final streamed = await _client.send(request);
     final response = await http.Response.fromStream(streamed);
 
-    if (response.statusCode != 200 || response.body.trim().toLowerCase() != 'true') {
-      throw OlhoVivoException('Falha ao autenticar na API Olho Vivo (${response.statusCode}: ${response.body.trim()}).');
+    if (response.statusCode != 200 ||
+        response.body.trim().toLowerCase() != 'true') {
+      throw OlhoVivoException(
+        'Falha ao autenticar na API Olho Vivo (${response.statusCode}: ${response.body.trim()}).',
+      );
     }
 
     final setCookie = response.headers['set-cookie'];
     final cookie = setCookie?.split(';').first.trim();
     if (cookie == null || cookie.isEmpty) {
-      throw OlhoVivoException('A API Olho Vivo autenticou, mas não retornou o cookie de sessão.');
+      throw OlhoVivoException(
+        'A API Olho Vivo autenticou, mas não retornou o cookie de sessão.',
+      );
     }
     _sessionCookie = cookie;
     _authenticated = true;
@@ -102,42 +129,78 @@ class OlhoVivoService {
   }
 
   Future<List<OlhoVivoLine>> searchLines(String term) async {
-    final uri = Uri.parse('$_baseUrl/Linha/Buscar').replace(queryParameters: {'termosBusca': term});
+    final uri = Uri.parse(
+      '$_baseUrl/Linha/Buscar',
+    ).replace(queryParameters: {'termosBusca': term});
     final response = await _get(uri);
-    if (response.statusCode != 200) throw OlhoVivoException('Erro ao buscar linha (${response.statusCode}).');
-    return (jsonDecode(response.body) as List).map((e) => OlhoVivoLine.fromJson(Map<String, dynamic>.from(e))).toList(growable: false);
+    if (response.statusCode != 200)
+      throw OlhoVivoException('Erro ao buscar linha (${response.statusCode}).');
+    return (jsonDecode(response.body) as List)
+        .map((e) => OlhoVivoLine.fromJson(Map<String, dynamic>.from(e)))
+        .toList(growable: false);
   }
 
   Future<int?> resolveLineCode(BusRoute route) async {
     final candidates = await searchLines(route.shortName.split('-').first);
     if (candidates.isEmpty) return null;
     final wantedNumber = _digits(route.shortName);
-    final exact = candidates.where((candidate) => _digits(candidate.number) == wantedNumber).toList();
-    final pool = exact.isEmpty ? candidates : exact;
+    final exact = candidates
+        .where((candidate) => _digits(candidate.number) == wantedNumber)
+        .toList();
+    if (exact.isEmpty) return null;
+    final pool = exact;
     if (pool.length == 1) return pool.first.code;
     final target = _normalize(route.longName);
-    pool.sort((a, b) => _score(target, _normalize(b.destination)).compareTo(_score(target, _normalize(a.destination))));
+    pool.sort(
+      (a, b) => _score(
+        target,
+        _normalize(b.destination),
+      ).compareTo(_score(target, _normalize(a.destination))),
+    );
+    if (_score(target, _normalize(pool.first.destination)) == 0) return null;
     return pool.first.code;
   }
 
   int _score(String a, String b) {
     if (a.isEmpty || b.isEmpty) return 0;
-    if (a.contains(b) || b.contains(a)) return 1000 + math.min(a.length, b.length);
+    if (a.contains(b) || b.contains(a))
+      return 1000 + math.min(a.length, b.length);
     return a.split(' ').toSet().intersection(b.split(' ').toSet()).length * 10;
   }
 
   String _digits(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
-  String _normalize(String s) => s.toUpperCase().replaceAll(RegExp(r'[ÁÀÂÃ]'), 'A').replaceAll(RegExp(r'[ÉÈÊ]'), 'E').replaceAll(RegExp(r'[ÍÌÎ]'), 'I').replaceAll(RegExp(r'[ÓÒÔÕ]'), 'O').replaceAll(RegExp(r'[ÚÙÛ]'), 'U').replaceAll('Ç', 'C').replaceAll(RegExp(r'[^A-Z0-9 ]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  String _normalize(String s) => s
+      .toUpperCase()
+      .replaceAll(RegExp(r'[ÁÀÂÃ]'), 'A')
+      .replaceAll(RegExp(r'[ÉÈÊ]'), 'E')
+      .replaceAll(RegExp(r'[ÍÌÎ]'), 'I')
+      .replaceAll(RegExp(r'[ÓÒÔÕ]'), 'O')
+      .replaceAll(RegExp(r'[ÚÙÛ]'), 'U')
+      .replaceAll('Ç', 'C')
+      .replaceAll(RegExp(r'[^A-Z0-9 ]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 
   Future<List<OlhoVivoStop>> stopsForLine(int lineCode) async {
-    final uri = Uri.parse('$_baseUrl/Parada/BuscarParadasPorLinha').replace(queryParameters: {'codigoLinha': '$lineCode'});
+    return _lineStops.putIfAbsent(lineCode, () => _fetchStopsForLine(lineCode));
+  }
+
+  Future<List<OlhoVivoStop>> _fetchStopsForLine(int lineCode) async {
+    final uri = Uri.parse(
+      '$_baseUrl/Parada/BuscarParadasPorLinha',
+    ).replace(queryParameters: {'codigoLinha': '$lineCode'});
     final response = await _get(uri);
     if (response.statusCode != 200) {
-      throw OlhoVivoException('Erro ao localizar paradas da linha (${response.statusCode}).');
+      throw OlhoVivoException(
+        'Erro ao localizar paradas da linha (${response.statusCode}).',
+      );
     }
     final data = jsonDecode(response.body);
     if (data is! List) return const [];
-    return data.whereType<Map>().map((item) => OlhoVivoStop.fromJson(Map<String, dynamic>.from(item))).toList(growable: false);
+    return data
+        .whereType<Map>()
+        .map((item) => OlhoVivoStop.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
   }
 
   Future<int?> resolveStopCode(int lineCode, BusStop stop) async {
@@ -152,7 +215,12 @@ class OlhoVivoService {
     OlhoVivoStop? best;
     var bestScore = -double.infinity;
     for (final candidate in stops) {
-      final meters = _distanceMeters(stop.lat, stop.lon, candidate.lat, candidate.lon);
+      final meters = _distanceMeters(
+        stop.lat,
+        stop.lon,
+        candidate.lat,
+        candidate.lon,
+      );
       if (meters > maxDistanceMeters) continue;
       final nameScore = _score(wantedName, _normalize(candidate.name));
       final score = -meters + math.min(nameScore * 20.0, 300.0);
@@ -168,27 +236,41 @@ class OlhoVivoService {
     const earthRadius = 6371000.0;
     final dLat = _radians(lat2 - lat1);
     final dLon = _radians(lon2 - lon1);
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_radians(lat1)) * math.cos(_radians(lat2)) * math.sin(dLon / 2) * math.sin(dLon / 2);
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_radians(lat1)) *
+            math.cos(_radians(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
     return earthRadius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
   }
 
   double _radians(double degrees) => degrees * math.pi / 180;
 
   Future<List<VehiclePosition>> vehicles(int lineCode) async {
-    final uri = Uri.parse('$_baseUrl/Posicao/Linha').replace(queryParameters: {'codigoLinha': '$lineCode'});
+    final uri = Uri.parse(
+      '$_baseUrl/Posicao/Linha',
+    ).replace(queryParameters: {'codigoLinha': '$lineCode'});
     final response = await _get(uri);
-    if (response.statusCode != 200) throw OlhoVivoException('Erro ao carregar veículos (${response.statusCode}).');
+    if (response.statusCode != 200)
+      throw OlhoVivoException(
+        'Erro ao carregar veículos (${response.statusCode}).',
+      );
     final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return ((data['vs'] ?? const []) as List).map((e) => VehiclePosition.fromJson(Map<String, dynamic>.from(e))).toList(growable: false);
+    return ((data['vs'] ?? const []) as List)
+        .map((e) => VehiclePosition.fromJson(Map<String, dynamic>.from(e)))
+        .toList(growable: false);
   }
 
   Future<List<ArrivalPrediction>> arrivals(int lineCode, BusStop stop) async {
-    // Previsao/Linha recebe somente a linha e devolve ps: as previsões
-    // agrupadas por ponto. O endpoint não aceita codigoParada nesse formato.
-    final uri = Uri.parse(
-      '$_baseUrl/Previsao/Linha',
-    ).replace(queryParameters: {'codigoLinha': '$lineCode'});
+    final stopCode = await resolveStopCode(lineCode, stop);
+    if (stopCode == null) return const [];
+    final uri = Uri.parse('$_baseUrl/Previsao').replace(
+      queryParameters: {
+        'codigoParada': '$stopCode',
+        'codigoLinha': '$lineCode',
+      },
+    );
     final response = await _get(uri);
     if (response.statusCode != 200) {
       throw OlhoVivoException(
@@ -198,34 +280,17 @@ class OlhoVivoService {
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     final serverTime = (data['hr'] ?? '').toString();
-    final points = data['ps'];
-    if (points is! List) return const [];
-
-    Map<String, dynamic>? selectedPoint;
-    var selectedScore = -double.infinity;
-    final wantedName = _normalize(stop.name);
-    for (final rawPoint in points) {
-      if (rawPoint is! Map) continue;
-      final point = Map<String, dynamic>.from(rawPoint);
-      final lat = (point['py'] as num?)?.toDouble();
-      final lon = (point['px'] as num?)?.toDouble();
-      if (lat == null || lon == null) continue;
-      final meters = _distanceMeters(stop.lat, stop.lon, lat, lon);
-      if (meters > 700) continue;
-      final nameScore = _score(
-        wantedName,
-        _normalize((point['np'] ?? '').toString()),
-      );
-      final score = -meters + math.min(nameScore * 20.0, 300.0);
-      if (score > selectedScore) {
-        selectedPoint = point;
-        selectedScore = score;
-      }
-    }
-    if (selectedPoint == null) return const [];
+    final point = data['p'];
+    if (point is! Map || point['cp'] != stopCode || point['l'] is! List)
+      return const [];
+    final line = (point['l'] as List)
+        .whereType<Map>()
+        .where((line) => line['cl'] == lineCode)
+        .firstOrNull;
+    if (line == null) return const [];
 
     final result = <ArrivalPrediction>[];
-    final vehicles = selectedPoint['vs'];
+    final vehicles = line['vs'];
     if (vehicles is! List) return const [];
     for (final rawVehicle in vehicles) {
       if (rawVehicle is! Map) continue;
@@ -245,6 +310,7 @@ class OlhoVivoService {
     result.sort((a, b) => a.minutes.compareTo(b.minutes));
     return result;
   }
+
   int? _minutesUntil(String current, String arrival) {
     int? parseMinutes(String value) {
       final parts = value.split(':');
@@ -262,6 +328,7 @@ class OlhoVivoService {
     final base = now ?? (currentTime.hour * 60 + currentTime.minute);
     var diff = eta - base;
     if (diff < 0) diff += 24 * 60;
+    if (diff > 180) return null;
     return diff;
   }
 }
