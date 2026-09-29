@@ -8,6 +8,7 @@ import '../models/transit_models.dart';
 import '../services/gtfs_repository.dart';
 import '../services/location_service.dart';
 import '../services/olho_vivo_service.dart';
+import '../services/sptrans_timetable_service.dart';
 
 class RouteMapScreen extends StatefulWidget {
   final BusRoute route;
@@ -30,6 +31,7 @@ class RouteMapScreen extends StatefulWidget {
 }
 
 class _RouteMapScreenState extends State<RouteMapScreen> {
+  static final _timetables = SptransTimetableService();
   final _map = MapController();
   final _location = LocationService();
   StreamSubscription<Position>? _locationSubscription;
@@ -41,6 +43,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   LatLng? _me;
   String? _error;
   bool _loading = false;
+  LineTimetable? _timetable;
+  String? _timetableError;
 
   @override
   void initState() {
@@ -48,8 +52,27 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     _me = widget.initialLocation;
     _startLocationTracking();
     _initRealtime();
+    _loadTimetable();
     if (widget.stop == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _fitRoute());
+    }
+  }
+
+  Future<void> _loadTimetable() async {
+    try {
+      final timetable = await _timetables.forRoute(widget.route);
+      if (mounted) {
+        setState(() {
+          _timetable = timetable;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () =>
+              _timetableError = 'Quadro horário da SPTrans indisponível agora.',
+        );
+      }
     }
   }
 
@@ -81,17 +104,22 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   void _fitRoute() {
     final shape = widget.gtfs.shapeFor(widget.route);
     if (!mounted || shape.length < 2) return;
-    _map.fitCamera(CameraFit.bounds(
-      bounds: LatLngBounds.fromPoints(shape),
-      padding: const EdgeInsets.fromLTRB(34, 112, 34, 180),
-      maxZoom: 16,
-    ));
+    _map.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(shape),
+        padding: const EdgeInsets.fromLTRB(34, 112, 34, 180),
+        maxZoom: 16,
+      ),
+    );
   }
 
   Future<void> _initRealtime() async {
     try {
-      _lineCode = widget.route.sptransCode ?? await widget.api.resolveLineCode(widget.route);
-      if (_lineCode == null) throw OlhoVivoException('Não encontrei esta linha na Olho Vivo.');
+      _lineCode =
+          widget.route.sptransCode ??
+          await widget.api.resolveLineCode(widget.route);
+      if (_lineCode == null)
+        throw OlhoVivoException('Não encontrei esta linha na Olho Vivo.');
       await _refresh();
       _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
     } catch (e) {
@@ -104,7 +132,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     if (code == null || _loading) return;
     _loading = true;
     try {
-      final vehicles = await widget.api.vehicles(code);
+      List<VehiclePosition> vehicles = const [];
+      String? vehicleError;
+      try {
+        vehicles = await widget.api.vehicles(code);
+      } catch (e) {
+        vehicleError = e.toString();
+      }
       List<ArrivalPrediction> arrivals = const [];
       var arrivalError = _arrivalError;
       final stop = widget.stop;
@@ -121,7 +155,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           _vehicles = vehicles;
           _arrivals = arrivals;
           _arrivalError = arrivalError;
-          _error = null;
+          _error = vehicleError;
         });
       }
     } catch (e) {
@@ -147,24 +181,42 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         border: Border.all(color: Colors.white, width: 3),
         boxShadow: const [BoxShadow(blurRadius: 6, color: Colors.black26)],
       ),
-      child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white, size: 24),
+      child: const Icon(
+        Icons.directions_bus_filled_rounded,
+        color: Colors.white,
+        size: 24,
+      ),
     ),
   );
 
-  Widget _locationMarker() => Stack(alignment: Alignment.center, children: [
-    Container(width: 54, height: 54, decoration: const BoxDecoration(color: Color(0x44087CCB), shape: BoxShape.circle)),
-    Container(
-      width: 26,
-      height: 26,
-      decoration: BoxDecoration(
-        color: const Color(0xFF087CCB),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 4),
-        boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black38)],
+  Widget _locationMarker() => Stack(
+    alignment: Alignment.center,
+    children: [
+      Container(
+        width: 54,
+        height: 54,
+        decoration: const BoxDecoration(
+          color: Color(0x44087CCB),
+          shape: BoxShape.circle,
+        ),
       ),
-      child: const Icon(Icons.navigation_rounded, color: Colors.white, size: 14),
-    ),
-  ]);
+      Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          color: const Color(0xFF087CCB),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 4),
+          boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black38)],
+        ),
+        child: const Icon(
+          Icons.navigation_rounded,
+          color: Colors.white,
+          size: 14,
+        ),
+      ),
+    ],
+  );
 
   Widget _scheduleItem(String label, String value) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,124 +246,298 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   Widget build(BuildContext context) {
     final shape = widget.gtfs.shapeFor(widget.route);
     final stop = widget.stop;
-    final initial = _me ?? (stop == null ? (shape.isNotEmpty ? shape.first : const LatLng(-23.55052, -46.633308)) : LatLng(stop.lat, stop.lon));
+    final initial =
+        _me ??
+        (stop == null
+            ? (shape.isNotEmpty
+                  ? shape.first
+                  : const LatLng(-23.55052, -46.633308))
+            : LatLng(stop.lat, stop.lon));
     final nextArrival = _arrivals.isEmpty ? null : _arrivals.first;
-    final schedule = widget.gtfs.scheduleFor(widget.route);
+    final officialSchedule = _timetable?.scheduleFor(
+      widget.route,
+      DateTime.now(),
+    );
+    final schedule =
+        officialSchedule ??
+        (_timetable == null ? widget.gtfs.scheduleFor(widget.route) : null);
+    final nextTerminalDeparture = _timetable?.nextTerminalDeparture(
+      widget.route,
+      DateTime.now(),
+    );
 
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 76,
         backgroundColor: const Color(0xFF087CCB),
         foregroundColor: Colors.white,
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(widget.route.shortName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 24)),
-          Text(widget.route.longName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.normal, color: Colors.white70)),
-        ]),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.route.shortName,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 24),
+            ),
+            Text(
+              widget.route.longName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.normal,
+                color: Colors.white70,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(onPressed: _me == null ? null : () => _map.move(_me!, 16), tooltip: 'Minha localização', icon: const Icon(Icons.my_location_rounded)),
-          IconButton(onPressed: _fitRoute, tooltip: 'Ver trajeto completo', icon: const Icon(Icons.route_rounded)),
-          IconButton(onPressed: _loading ? null : _refresh, tooltip: 'Atualizar ônibus', icon: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.refresh_rounded)),
+          IconButton(
+            onPressed: _me == null ? null : () => _map.move(_me!, 16),
+            tooltip: 'Minha localização',
+            icon: const Icon(Icons.my_location_rounded),
+          ),
+          IconButton(
+            onPressed: _fitRoute,
+            tooltip: 'Ver trajeto completo',
+            icon: const Icon(Icons.route_rounded),
+          ),
+          IconButton(
+            onPressed: _loading ? null : _refresh,
+            tooltip: 'Atualizar ônibus',
+            icon: _loading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.refresh_rounded),
+          ),
           const SizedBox(width: 6),
         ],
       ),
-      body: Stack(children: [
-        FlutterMap(
-          mapController: _map,
-          options: MapOptions(initialCenter: initial, initialZoom: 16, minZoom: 10, maxZoom: 19),
-          children: [
-            TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'br.com.lopeskuti.meuonibus'),
-            if (shape.length > 1)
-              PolylineLayer(polylines: [
-                Polyline(points: shape, strokeWidth: 7, color: Colors.white.withValues(alpha: .9)),
-                Polyline(points: shape, strokeWidth: 4.5, color: const Color(0xFFE5252A)),
-              ]),
-            MarkerLayer(markers: [
-              if (stop != null)
-                Marker(point: LatLng(stop.lat, stop.lon), width: 46, height: 46, child: Tooltip(message: stop.name, child: _selectedStopMarker())),
-              if (_me != null) Marker(point: _me!, width: 54, height: 54, child: Tooltip(message: 'Você está aqui', child: _locationMarker())),
-              ..._vehicles.map((v) => Marker(
-                point: LatLng(v.lat, v.lon),
-                width: 46,
-                height: 46,
-                child: _busMarker(v),
-              )),
-            ]),
-            RichAttributionWidget(attributions: const [TextSourceAttribution('OpenStreetMap contributors')]),
-          ],
-        ),
-        if (_error != null)
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _map,
+            options: MapOptions(
+              initialCenter: initial,
+              initialZoom: 16,
+              minZoom: 10,
+              maxZoom: 19,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'br.com.lopeskuti.meuonibus',
+              ),
+              if (shape.length > 1)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: shape,
+                      strokeWidth: 7,
+                      color: Colors.white.withValues(alpha: .9),
+                    ),
+                    Polyline(
+                      points: shape,
+                      strokeWidth: 4.5,
+                      color: const Color(0xFFE5252A),
+                    ),
+                  ],
+                ),
+              MarkerLayer(
+                markers: [
+                  if (stop != null)
+                    Marker(
+                      point: LatLng(stop.lat, stop.lon),
+                      width: 46,
+                      height: 46,
+                      child: Tooltip(
+                        message: stop.name,
+                        child: _selectedStopMarker(),
+                      ),
+                    ),
+                  if (_me != null)
+                    Marker(
+                      point: _me!,
+                      width: 54,
+                      height: 54,
+                      child: Tooltip(
+                        message: 'Você está aqui',
+                        child: _locationMarker(),
+                      ),
+                    ),
+                  ..._vehicles.map(
+                    (v) => Marker(
+                      point: LatLng(v.lat, v.lon),
+                      width: 46,
+                      height: 46,
+                      child: _busMarker(v),
+                    ),
+                  ),
+                ],
+              ),
+              RichAttributionWidget(
+                attributions: const [
+                  TextSourceAttribution('OpenStreetMap contributors'),
+                ],
+              ),
+            ],
+          ),
+          if (_error != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              top: 12,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.error_outline_rounded,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(_error!)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             left: 12,
             right: 12,
-            top: 12,
+            bottom: 14,
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Icon(Icons.error_outline_rounded, color: Theme.of(context).colorScheme.error),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(_error!)),
-                ]),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFE5252A),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.directions_bus_filled_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            stop?.name ?? 'Acompanhamento da linha',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          if (stop == null)
+                            Text(
+                              'Trajeto e veículos em tempo real',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            )
+                          else if (nextArrival != null)
+                            Text(
+                              nextArrival.minutes <= 1
+                                  ? 'Próximo ônibus chegando • ${nextArrival.expectedAt}'
+                                  : 'Próximo ônibus em ${nextArrival.minutes} min • ${nextArrival.expectedAt}',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            )
+                          else if (_arrivalError != null)
+                            Text(
+                              _arrivalError!,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                            )
+                          else
+                            Text(
+                              'A SPTrans não reportou previsão para este ponto agora.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          if (stop != null &&
+                              nextArrival == null &&
+                              nextTerminalDeparture != null)
+                            Text(
+                              'Próxima partida no terminal de origem: $nextTerminalDeparture',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          Text(
+                            '${_vehicles.length} ônibus em circulação • atualização a cada 15 s',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Divider(height: 1),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Operação programada',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          Text(
+                            '${schedule?.operatingDays ?? (_timetable?.operatingDaysFor(widget.route) ?? 'Indisponível')}${_timetable != null && officialSchedule == null ? ' • sem partidas hoje' : ''}${officialSchedule != null ? ' • horários de partida no terminal de origem (SPTrans)' : ''}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          if (_timetableError != null &&
+                              officialSchedule == null)
+                            Text(
+                              _timetableError!,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _scheduleItem(
+                                  'Primeiro',
+                                  schedule?.firstDeparture ?? '—',
+                                ),
+                              ),
+                              Expanded(
+                                child: _scheduleItem(
+                                  'Último',
+                                  schedule?.lastDeparture ?? '—',
+                                ),
+                              ),
+                              Expanded(
+                                child: _scheduleItem(
+                                  'Intervalo estimado',
+                                  _arrivals.length >= 2
+                                      ? _predictedIntervalLabel()
+                                      : (schedule?.averageHeadwayMinutes == null
+                                            ? '—'
+                                            : '${schedule!.averageHeadwayMinutes} min'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        Positioned(
-          left: 12,
-          right: 12,
-          bottom: 14,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-              child: Row(children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: const BoxDecoration(color: Color(0xFFE5252A), shape: BoxShape.circle),
-                  child: const Icon(Icons.directions_bus_filled_rounded, color: Colors.white, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(stop?.name ?? 'Acompanhamento da linha', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    if (stop == null)
-                      Text('Trajeto e veículos em tempo real', style: Theme.of(context).textTheme.bodySmall)
-                    else if (nextArrival != null)
-                      Text(
-                        nextArrival.minutes <= 1
-                            ? 'Próximo ônibus chegando • ${nextArrival.expectedAt}'
-                            : 'Próximo ônibus em ${nextArrival.minutes} min • ${nextArrival.expectedAt}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-                      )
-                    else if (_arrivalError != null)
-                      Text(_arrivalError!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error))
-                    else
-                      Text('A SPTrans não reportou previsão para este ponto agora.', style: Theme.of(context).textTheme.bodySmall),
-                    Text('${_vehicles.length} ônibus em circulação • atualização a cada 15 s', style: Theme.of(context).textTheme.bodySmall),
-                    const Padding(padding: EdgeInsets.only(top: 8), child: Divider(height: 1)),
-                    const SizedBox(height: 8),
-                    const Text('Operação programada', style: TextStyle(fontWeight: FontWeight.w700)),
-                    Text(
-                      schedule?.operatingDays ?? 'Indisponível na base GTFS atual',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Row(children: [
-                      Expanded(child: _scheduleItem('Primeiro', schedule?.firstDeparture ?? '—')),
-                      Expanded(child: _scheduleItem('Último', schedule?.lastDeparture ?? '—')),
-                      Expanded(child: _scheduleItem(
-                        'Intervalo estimado',
-                        _arrivals.length >= 2
-                            ? _predictedIntervalLabel()
-                            : (schedule?.averageHeadwayMinutes == null ? '—' : '${schedule!.averageHeadwayMinutes} min'),
-                      )),
-                    ]),
-                  ]),
-                ),
-              ]),
-            ),
-          ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 }

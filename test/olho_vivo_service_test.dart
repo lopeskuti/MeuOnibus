@@ -23,23 +23,60 @@ class _SequenceClient extends http.BaseClient {
 }
 
 void main() {
-  test('uses Previsao/Linha and selects the matching stop from ps', () async {
+  test('matches each Olho Vivo direction to its destination', () async {
     final client = _SequenceClient([
-      http.Response('true', 200, headers: const {'set-cookie': 'session=ok; Path=/'}),
-      http.Response('''
-        {
-          "hr": "14:30",
-          "ps": [
-            {
-              "cp": 40012306,
-              "np": "RIO DAS PEDRAS B/C",
-              "py": -23.568189,
-              "px": -46.509633,
-              "vs": [{"p": "12345", "t": "14:34", "a": true}]
-            }
-          ]
-        }
-      ''', 200),
+      http.Response(
+        'true',
+        200,
+        headers: const {'set-cookie': 'session=ok; Path=/'},
+      ),
+      http.Response(
+        '[{"cl":111,"lt":"748R","tl":10,"sl":1,"tp":"METRÔ BARRA FUNDA","ts":"JD. JOÃO XXIII"},{"cl":222,"lt":"748R","tl":10,"sl":2,"tp":"METRÔ BARRA FUNDA","ts":"JD. JOÃO XXIII"}]',
+        200,
+      ),
+      http.Response(
+        '[{"cl":111,"lt":"748R","tl":10,"sl":1,"tp":"METRÔ BARRA FUNDA","ts":"JD. JOÃO XXIII"},{"cl":222,"lt":"748R","tl":10,"sl":2,"tp":"METRÔ BARRA FUNDA","ts":"JD. JOÃO XXIII"}]',
+        200,
+      ),
+    ]);
+    final service = OlhoVivoService(token: 'test', client: client);
+    expect(
+      await service.resolveLineCode(
+        const BusRoute(
+          id: '748R-10:0',
+          shortName: '748R-10',
+          longName: 'Metrô Barra Funda',
+        ),
+      ),
+      111,
+    );
+    expect(
+      await service.resolveLineCode(
+        const BusRoute(
+          id: '748R-10:1',
+          shortName: '748R-10',
+          longName: 'Jd. João Xxiii',
+        ),
+      ),
+      222,
+    );
+  });
+
+  test('resolves the line stop and requests its prediction', () async {
+    final client = _SequenceClient([
+      http.Response(
+        'true',
+        200,
+        headers: const {'set-cookie': 'session=ok; Path=/'},
+      ),
+      http.Response(
+        '[{"cp":40012306,"np":"RIO DAS PEDRAS B/C","py":-23.568189,"px":-46.509633}]',
+        200,
+      ),
+      http.Response(
+        '{"hr":"14:30","p":{"cp":40012306,"l":[{"cl":123,"vs":[{"p":"12345","t":"14:34","a":true}]}]}}',
+        200,
+      ),
     ]);
     final service = OlhoVivoService(token: 'token-de-teste', client: client);
     const stop = BusStop(
@@ -54,8 +91,11 @@ void main() {
     expect(arrivals, hasLength(1));
     expect(arrivals.single.prefix, '12345');
     expect(arrivals.single.minutes, 4);
-    expect(client.requests, hasLength(2));
-    expect(client.requests.last.url.path, '/v2.1/Previsao/Linha');
-    expect(client.requests.last.url.queryParameters, {'codigoLinha': '123'});
+    expect(client.requests, hasLength(3));
+    expect(client.requests.last.url.path, '/v2.1/Previsao');
+    expect(client.requests.last.url.queryParameters, {
+      'codigoParada': '40012306',
+      'codigoLinha': '123',
+    });
   });
 }
