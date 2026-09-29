@@ -131,7 +131,7 @@ class LineTimetable {
 
   static String formatTime(int minutes) =>
       '${(minutes ~/ 60) % 24}'.padLeft(2, '0') +
-      ':${minutes % 60}'.padLeft(2, '0');
+      ':${(minutes % 60).toString().padLeft(2, '0')}';
 
   Map<int, List<int>> forDirection(BusRoute route) {
     final target = _normalize(route.longName);
